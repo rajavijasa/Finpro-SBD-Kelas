@@ -260,6 +260,38 @@ export default function CampusMatchDashboard({
 
   const userList = allUsers && allUsers.length > 0 ? allUsers : Object.keys(USER_PROFILES);
 
+  // Data Fetching for Dashboard Sections
+  const [clientMutualMatches, setClientMutualMatches] = useState<MutualClassResult[]>(mutualMatches || []);
+  const [loadingMutual, setLoadingMutual] = useState(true);
+
+  const [clientHobbyMatches, setClientHobbyMatches] = useState<HobbyClusterResult[]>(hobbyMatches || []);
+  const [loadingHobby, setLoadingHobby] = useState(true);
+
+  useEffect(() => {
+    async function fetchData() {
+      setLoadingMutual(true);
+      setLoadingHobby(true);
+      try {
+        const [mutRes, hobRes] = await Promise.all([
+          fetch(`/api/recommendations/mutual-classes?userName=${encodeURIComponent(currentUser)}`),
+          fetch(`/api/recommendations/hobby-cluster?userName=${encodeURIComponent(currentUser)}`)
+        ]);
+        if (mutRes.ok) {
+          setClientMutualMatches(await mutRes.json());
+        }
+        if (hobRes.ok) {
+          setClientHobbyMatches(await hobRes.json());
+        }
+      } catch (err) {
+        console.error("Failed to fetch dashboard recommendations", err);
+      } finally {
+        setLoadingMutual(false);
+        setLoadingHobby(false);
+      }
+    }
+    fetchData();
+  }, [currentUser]);
+
   // Swipe deck state management
   const [candidates, setCandidates] = useState<TinderCandidate[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -861,6 +893,116 @@ export default function CampusMatchDashboard({
           </div>
 
         </section>
+
+        {/* NEW SECTIONS: Mutual Classes & Hobby Cluster */}
+        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+          {/* Section 1: Mutual Class Finder */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-[0_2px_12px_rgba(0,0,0,0.01)] flex flex-col h-full">
+            <h3 className="text-sm font-extrabold text-slate-900 mb-1 flex items-center gap-2">
+              <span>📚</span> Mutual Class Finder
+            </h3>
+            <p className="text-xs text-slate-500 mb-4">Peers who share the exact same courses but are not yet connected.</p>
+            
+            {loadingMutual ? (
+              <div className="space-y-3 animate-pulse">
+                {[1, 2, 3].map(i => (
+                  <div key={i} className="flex gap-3 items-center p-3 border border-slate-100 rounded-xl">
+                    <div className="w-10 h-10 rounded-full bg-slate-200 shrink-0"></div>
+                    <div className="flex-1 space-y-2">
+                      <div className="h-3 bg-slate-200 rounded w-1/3"></div>
+                      <div className="h-2 bg-slate-200 rounded w-1/2"></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : clientMutualMatches.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-6 border border-dashed border-slate-200 rounded-xl">
+                <span className="text-2xl mb-2 opacity-50">🎒</span>
+                <span className="text-xs font-bold text-slate-500">No mutual classmates found</span>
+              </div>
+            ) : (
+              <div className="space-y-3 flex-1">
+                {clientMutualMatches.map((match, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-3 border border-slate-100 rounded-xl hover:border-slate-300 transition-colors bg-slate-50/50">
+                    <div className="flex items-center gap-3">
+                      <img src={getStudentAvatar(match.user.name)} alt={match.user.name} className="w-10 h-10 rounded-full object-cover border border-slate-200" />
+                      <div>
+                        <h4 className="text-xs font-extrabold text-slate-900">{match.user.name}</h4>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {match.sharedCourses.map(course => (
+                            <span key={course.code} className="text-[9px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                              {course.code}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    <button onClick={() => alert(`Connection request sent to ${match.user.name}!`)} className="text-[10px] font-bold bg-slate-900 text-white px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors">
+                      Connect
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Section 2: Hobby Cluster */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-[0_2px_12px_rgba(0,0,0,0.01)] flex flex-col h-full">
+            <h3 className="text-sm font-extrabold text-slate-900 mb-1 flex items-center gap-2">
+              <span>🎯</span> Hobby Clusters
+            </h3>
+            <p className="text-xs text-slate-500 mb-4">Discover students clustered by your shared interests and hobbies.</p>
+
+            {loadingHobby ? (
+              <div className="space-y-4 animate-pulse">
+                {[1, 2].map(i => (
+                  <div key={i} className="border border-slate-100 rounded-xl p-3">
+                    <div className="h-4 bg-slate-200 rounded w-1/4 mb-3"></div>
+                    <div className="flex gap-2">
+                      <div className="w-8 h-8 rounded-full bg-slate-200"></div>
+                      <div className="w-8 h-8 rounded-full bg-slate-200"></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : clientHobbyMatches.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-6 border border-dashed border-slate-200 rounded-xl">
+                <span className="text-2xl mb-2 opacity-50">🎮</span>
+                <span className="text-xs font-bold text-slate-500">No hobby clusters found</span>
+              </div>
+            ) : (
+              <div className="space-y-4 flex-1">
+                {Object.entries(
+                  clientHobbyMatches.reduce((acc, curr) => {
+                    const hName = curr.hobby.name || 'Unknown';
+                    if (!acc[hName]) acc[hName] = [];
+                    acc[hName].push(curr);
+                    return acc;
+                  }, {} as Record<string, HobbyClusterResult[]>)
+                ).map(([hobbyName, matches]) => (
+                  <div key={hobbyName} className="border border-slate-100 rounded-xl p-3 bg-slate-50/50 hover:border-slate-300 transition-colors">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-700 px-2 py-0.5 rounded-md">
+                        {hobbyName}
+                      </span>
+                      <span className="text-[10px] font-bold text-slate-400">
+                        {matches.length} Member{matches.length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {matches.map((m, idx) => (
+                        <div key={idx} className="flex items-center gap-1.5 bg-white border border-slate-200 px-2 py-1 rounded-lg shadow-sm" title={m.major?.name}>
+                          <img src={getStudentAvatar(m.user.name)} alt={m.user.name} className="w-5 h-5 rounded-full object-cover" />
+                          <span className="text-[10px] font-bold text-slate-700">{m.user.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
 
       </main>
 
