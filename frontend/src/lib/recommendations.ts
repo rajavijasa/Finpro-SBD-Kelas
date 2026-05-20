@@ -71,7 +71,7 @@ export async function mutualClassFinder(input: {
     userName: input.userName,
     limit: neo4j.int(limit),
   });
-  return result.records.map((r) => {
+  return result.records.map((r: any) => {
     const user = neo4jRecordToNative<UserSummary>(r.get('user'));
     const sharedCount = neo4jRecordToNative<number>(r.get('sharedCount'));
     const sharedCourses = neo4jRecordToNative<CourseSummary[]>(r.get('sharedCourses'));
@@ -107,7 +107,7 @@ export async function friendOfFriendRecommendations(input: {
     userName: input.userName,
     limit: neo4j.int(limit),
   });
-  return result.records.map((r) => {
+  return result.records.map((r: any) => {
     const user = neo4jRecordToNative<UserSummary>(r.get('user'));
     const mutualCount = neo4jRecordToNative<number>(r.get('mutualCount'));
     const mutualFriends = neo4jRecordToNative<UserSummary[]>(r.get('mutualFriends'));
@@ -146,7 +146,7 @@ export async function hobbyCluster(input: {
     limit: neo4j.int(limit),
   });
 
-  return result.records.map((r) => {
+  return result.records.map((r: any) => {
     const user = neo4jRecordToNative<UserSummary>(r.get('user'));
     const major = neo4jRecordToNative<MajorSummary | null>(r.get('major'));
     const hobby = neo4jRecordToNative<HobbySummary>(r.get('hobby'));

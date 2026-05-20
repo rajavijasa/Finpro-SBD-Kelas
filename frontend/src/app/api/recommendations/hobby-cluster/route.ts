@@ -7,7 +7,6 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const userName = searchParams.get('userName');
-  const hobbyName = searchParams.get('hobbyName');
   const limitParam = searchParams.get('limit');
   const limit = limitParam ? Number(limitParam) : undefined;
 
@@ -15,12 +14,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Missing query param: userName' }, { status: 400 });
   }
 
-  if (!hobbyName) {
-    return NextResponse.json({ error: 'Missing query param: hobbyName' }, { status: 400 });
-  }
-
   try {
-    const data = await hobbyCluster({ userName, hobbyName, limit });
+    const data = await hobbyCluster({ userName, limit });
     return NextResponse.json(data);
   } catch (err) {
     console.error('hobby-cluster failed', err);

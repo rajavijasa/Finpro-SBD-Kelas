@@ -1,6 +1,6 @@
 import 'server-only';
 
-import neo4j, { type Driver } from 'neo4j-driver';
+import neo4j, { type Driver, type QueryResult, type RecordShape } from 'neo4j-driver';
 
 declare global {
   var __campuscircleNeo4jDriver: Driver | undefined;
@@ -26,10 +26,10 @@ export function getNeo4jDriver(): Driver {
   return driver;
 }
 
-export async function runCypher<T = unknown>(
+export async function runCypher<T extends RecordShape = RecordShape>(
   cypher: string,
   params: Record<string, unknown> = {},
-): Promise<neo4j.QueryResult<T>> {
+): Promise<QueryResult<T>> {
   const driver = getNeo4jDriver();
   const database = process.env.NEO4J_DATABASE;
   const session = driver.session({ database: database || undefined });

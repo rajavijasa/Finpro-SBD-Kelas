@@ -7,20 +7,14 @@ import {
   hobbyCluster,
   mutualClassFinder,
 } from "@/lib/recommendations";
+import { fetchSwipeDeckAction, fetchLikedMeDeckAction } from "@/app/actions/auth";
 import { Suspense } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-interface PageProps {
-  searchParams: Promise<{
-    userName?: string;
-    limit?: string;
-  }>;
-}
-
-export default async function Home({ searchParams }: PageProps) {
+export default async function Home() {
   // Check active authenticated session cookie from Supabase Postgres / Drizzle
   const cookieStore = await cookies();
   const sessionUser = cookieStore.get("session_user")?.value;
@@ -29,10 +23,7 @@ export default async function Home({ searchParams }: PageProps) {
     redirect("/login");
   }
 
-  const params = await searchParams;
   const userName = sessionUser;
-  const limitRaw = Number(params.limit ?? process.env.DEMO_LIMIT ?? 10);
-  const limit = Number.isFinite(limitRaw) ? limitRaw : 10;
 
   // 1. Fetch active user profile from PostgreSQL & orbits from Neo4j in parallel
   const [profileResult, orbitsResult] = await Promise.all([
@@ -65,33 +56,20 @@ export default async function Home({ searchParams }: PageProps) {
     hobbies: hobbiesList,
   };
 
-  // 2. Fetch recommendations in parallel (hobbyCluster uses the updated dynamic shared hobby matcher)
-  const [mutual, fof, hobby, allUsersRes] = await Promise.allSettled([
-    mutualClassFinder({ userName, limit }),
-    friendOfFriendRecommendations({ userName, limit }),
-    hobbyCluster({ userName, limit }),
-    runCypher(`
-      MATCH (u:User|Student)
-      RETURN u.name AS name
-      ORDER BY u.name ASC
-      LIMIT 80
-    `)
+  // 2. Fetch recommendations (for Radar panel) + swipe deck + liked-me count in parallel
+  const [mutual, fof, hobby, swipeDeckResult, likedMeResult] = await Promise.allSettled([
+    mutualClassFinder({ userName, limit: 50 }),
+    friendOfFriendRecommendations({ userName, limit: 50 }),
+    hobbyCluster({ userName, limit: 50 }),
+    fetchSwipeDeckAction(sessionUser),
+    fetchLikedMeDeckAction(sessionUser),
   ]);
 
   const mutualVal = mutual.status === "fulfilled" ? mutual.value : [];
   const fofVal = fof.status === "fulfilled" ? fof.value : [];
   const hobbyVal = hobby.status === "fulfilled" ? hobby.value : [];
-  
-  // Parse all loaded user names from the database
-  let allUsers: string[] = [];
-  if (allUsersRes.status === "fulfilled") {
-    allUsers = allUsersRes.value.records.map(r => r.get("name") as string);
-  }
-
-  // Fallback to core default names if DB is temporarily unreachable
-  if (allUsers.length === 0) {
-    allUsers = ["Alice", "Bob", "Carol", "Dave", "Erin", "Frank"];
-  }
+  const swipeDeck = swipeDeckResult.status === "fulfilled" ? swipeDeckResult.value : [];
+  const likedMeDeck = likedMeResult.status === "fulfilled" ? likedMeResult.value : [];
 
   return (
     <Suspense
@@ -111,7 +89,8 @@ export default async function Home({ searchParams }: PageProps) {
         mutualMatches={mutualVal}
         fofMatches={fofVal}
         hobbyMatches={hobbyVal}
-        allUsers={allUsers}
+        swipeDeck={swipeDeck}
+        likedMeCount={likedMeDeck.length}
         profileData={profileData}
       />
     </Suspense>

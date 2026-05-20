@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { GraphDemo } from './graph-demo';
-import { logoutAction, updateProfileAction } from '@/app/actions/auth';
+import { logoutAction, updateProfileAction, recordSwipeAction } from '@/app/actions/auth';
+import type { SwipeDeckCandidate } from '@/app/actions/auth';
 
 // Deterministic high-definition stock student portraits from Unsplash
 const PORTRAITS = [
@@ -98,6 +99,8 @@ interface CampusMatchDashboardProps {
   fofMatches: FofResult[];
   hobbyMatches: HobbyClusterResult[];
   allUsers?: string[];
+  swipeDeck?: SwipeDeckCandidate[];
+  likedMeCount?: number;
   profileData: StudentProfile;
 }
 
@@ -195,16 +198,20 @@ interface TinderCandidate {
   name: string;
   university: string;
   year: number;
-  matchType: 'class' | 'fof' | 'hobby';
+  matchType: 'class' | 'fof' | 'hobby' | 'general';
   bio: string;
   gender: 'female' | 'male';
   major: string;
   faculty: string;
   colorStyle: { text: string; bg: string; dot: string };
+  relevanceScore: number;
   details: {
     courses?: CourseSummary[];
     friends?: UserSummary[];
     hobby?: HobbySummary;
+    sharedCourses?: string[];
+    sharedHobbies?: string[];
+    mutualFriends?: number;
   };
 }
 
@@ -214,6 +221,8 @@ export default function CampusMatchDashboard({
   fofMatches,
   hobbyMatches,
   allUsers,
+  swipeDeck,
+  likedMeCount,
   profileData,
 }: CampusMatchDashboardProps) {
   const colors = [
@@ -263,93 +272,47 @@ export default function CampusMatchDashboard({
   const [isDragging, setIsDragging] = useState(false);
   const [flyOutDirection, setFlyOutDirection] = useState<'left' | 'right' | 'up' | null>(null);
 
-  // Compile SBD recommendation arrays into a single Tinder swipe card deck
+  // Initialize swipe deck from server-provided pre-sorted candidates
   useEffect(() => {
-    const compiled: TinderCandidate[] = [];
-    const addedNames = new Set<string>();
+    if (swipeDeck && swipeDeck.length > 0) {
+      const compiled: TinderCandidate[] = swipeDeck.map((c) => {
+        const profile = USER_PROFILES[c.name];
+        const charSum = c.name.split('').reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+        const defaultColor = colors[charSum % colors.length];
 
-    // 1. Classroom Sparks
-    mutualMatches.forEach((m) => {
-      if (addedNames.has(m.user.name)) return;
-      addedNames.add(m.user.name);
-      const profile = USER_PROFILES[m.user.name] ?? {
-        bio: "Campus student ready to spark connections!",
-        gender: "female",
-        major: "Undergraduate",
-        faculty: "General",
-        colorStyle: { text: "text-slate-600", bg: "bg-slate-50 border-slate-100", dot: "bg-slate-500" }
-      };
-      compiled.push({
-        name: m.user.name,
-        university: m.user.university ?? "Uni A",
-        year: m.user.year ?? 2,
-        matchType: 'class',
-        bio: profile.bio,
-        gender: profile.gender,
-        major: profile.major,
-        faculty: profile.faculty,
-        colorStyle: profile.colorStyle,
-        details: { courses: m.sharedCourses }
+        // Determine primary match type based on what they share
+        let matchType: TinderCandidate['matchType'] = 'general';
+        if (c.sharedCourses.length > 0) matchType = 'class';
+        else if (c.sharedHobbies.length > 0) matchType = 'hobby';
+        else if (c.mutualFriends > 0) matchType = 'fof';
+
+        return {
+          name: c.name,
+          university: c.university,
+          year: c.year,
+          matchType,
+          bio: profile?.bio || c.bio,
+          gender: (profile?.gender || c.gender || 'female') as 'female' | 'male',
+          major: profile?.major || c.major,
+          faculty: profile?.faculty || c.faculty,
+          colorStyle: profile?.colorStyle || defaultColor,
+          relevanceScore: c.relevanceScore,
+          details: {
+            sharedCourses: c.sharedCourses,
+            sharedHobbies: c.sharedHobbies,
+            mutualFriends: c.mutualFriends,
+          },
+        };
       });
-    });
 
-    // 2. Mutual Circles
-    fofMatches.forEach((f) => {
-      if (addedNames.has(f.user.name)) return;
-      addedNames.add(f.user.name);
-      const profile = USER_PROFILES[f.user.name] ?? {
-        bio: "Connected through mutual classmates!",
-        gender: "male",
-        major: "Undergraduate",
-        faculty: "General",
-        colorStyle: { text: "text-slate-600", bg: "bg-slate-50 border-slate-100", dot: "bg-slate-500" }
-      };
-      compiled.push({
-        name: f.user.name,
-        university: f.user.university ?? "Uni A",
-        year: f.user.year ?? 2,
-        matchType: 'fof',
-        bio: profile.bio,
-        gender: profile.gender,
-        major: profile.major,
-        faculty: profile.faculty,
-        colorStyle: profile.colorStyle,
-        details: { friends: f.mutualFriends }
-      });
-    });
-
-    // 3. Hobby Cluster matches
-    hobbyMatches.forEach((h) => {
-      if (addedNames.has(h.user.name)) return;
-      addedNames.add(h.user.name);
-      const profile = USER_PROFILES[h.user.name] ?? {
-        bio: "Shares your matching passion field!",
-        gender: "female",
-        major: h.major?.name ?? "Undergraduate",
-        faculty: h.major?.faculty ?? "General",
-        colorStyle: { text: "text-slate-600", bg: "bg-slate-50 border-slate-100", dot: "bg-slate-500" }
-      };
-      compiled.push({
-        name: h.user.name,
-        university: h.user.university ?? "Uni A",
-        year: h.user.year ?? 2,
-        matchType: 'hobby',
-        bio: profile.bio,
-        gender: profile.gender,
-        major: h.major?.name ?? "Undergraduate",
-        faculty: h.major?.faculty ?? "General",
-        colorStyle: profile.colorStyle,
-        details: { hobby: h.hobby }
-      });
-    });
-
-    setCandidates(compiled);
-    setCurrentIndex(0);
-    setHistory([]);
-    setSwipes({});
-    setDragOffset({ x: 0, y: 0 });
-    setFlyOutDirection(null);
-  }, [mutualMatches, fofMatches, hobbyMatches, currentUser]);
+      setCandidates(compiled);
+      setCurrentIndex(0);
+      setHistory([]);
+      setSwipes({});
+      setDragOffset({ x: 0, y: 0 });
+      setFlyOutDirection(null);
+    }
+  }, [swipeDeck, currentUser]);
 
 
 
@@ -388,7 +351,7 @@ export default function CampusMatchDashboard({
     }
   };
 
-  const swipe = (direction: 'left' | 'right' | 'up') => {
+  const swipe = async (direction: 'left' | 'right' | 'up') => {
     if (currentIndex >= candidates.length) return;
 
     const candidate = candidates[currentIndex];
@@ -397,14 +360,20 @@ export default function CampusMatchDashboard({
     const swipeType = direction === 'left' ? 'nope' : direction === 'right' ? 'like' : 'super';
     setSwipes(prev => ({ ...prev, [candidate.name]: swipeType }));
 
-    setTimeout(() => {
+    // Trigger secure, parallel dual-database swipe recording
+    const swipePromise = recordSwipeAction(currentUser, candidate.name, swipeType);
+
+    setTimeout(async () => {
       setHistory(prev => [...prev, currentIndex]);
       setCurrentIndex(prev => prev + 1);
       setDragOffset({ x: 0, y: 0 });
       setFlyOutDirection(null);
 
       if (direction === 'right' || direction === 'up') {
-        setMatchPopup({ show: true, targetName: candidate.name });
+        const result = await swipePromise;
+        if (result && 'isMatch' in result && result.isMatch) {
+          setMatchPopup({ show: true, targetName: candidate.name });
+        }
       }
     }, 250);
   };
@@ -515,7 +484,7 @@ export default function CampusMatchDashboard({
       return {
         transform: `translate3d(${flyX}px, ${flyY}px, 0) rotate(${rotate}deg)`,
         transition: 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
-        zIndex: 40,
+        zIndex: 30,
       };
     }
 
@@ -524,7 +493,7 @@ export default function CampusMatchDashboard({
       transform: `translate3d(${dragOffset.x}px, ${dragOffset.y}px, 0) rotate(${rotate}deg)`,
       transition: isDragging ? 'none' : 'transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.15)',
       cursor: isDragging ? 'grabbing' : 'grab',
-      zIndex: 40,
+      zIndex: 30,
     };
   };
 
@@ -532,7 +501,7 @@ export default function CampusMatchDashboard({
     <div className="min-h-screen bg-slate-50/70 text-slate-800 font-sans antialiased selection:bg-rose-100 selection:text-rose-900 pb-20">
       
       {/* Sleek Minimalist Header */}
-      <header className="sticky top-0 z-40 w-full border-b border-slate-100 bg-white/80 backdrop-blur-md">
+      <header className="sticky top-0 z-50 w-full border-b border-slate-100 bg-white/80 backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
           <div className="flex items-center gap-2">
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-rose-500 text-white font-bold text-sm shadow-sm">
@@ -554,6 +523,18 @@ export default function CampusMatchDashboard({
               <span className="text-[10px] font-bold text-rose-600 uppercase tracking-widest">Active:</span>
               <span className="text-xs font-black text-slate-900">{currentUser} ✨</span>
             </div>
+
+            <a
+              href="/likes"
+              className="relative flex items-center gap-1 bg-pink-50 hover:bg-pink-100 transition-colors text-pink-600 font-extrabold text-xs px-3.5 py-2 rounded-xl cursor-pointer shadow-sm hover:scale-[1.02] active:scale-[0.98] border border-pink-200/50"
+            >
+              💘 Liked Me
+              {(likedMeCount ?? 0) > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 text-[9px] font-black text-white px-1 shadow-sm animate-bounce">
+                  {likedMeCount}
+                </span>
+              )}
+            </a>
             
             <button
               onClick={() => setShowSettings(true)}
@@ -725,19 +706,24 @@ export default function CampusMatchDashboard({
 
                         {/* Interactive Spark Connection Badges */}
                         <div className="flex flex-wrap gap-1.5 mt-3 select-none">
-                          {card.matchType === 'class' && (
+                          {(card.details.sharedCourses?.length ?? 0) > 0 && (
                             <span className="bg-emerald-500/90 text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-lg border border-emerald-400/20 shadow-sm flex items-center gap-1">
-                              <span>📚</span> Same Course ({card.details.courses?.[0]?.code})
+                              <span>📚</span> {card.details.sharedCourses!.length} Shared Course{card.details.sharedCourses!.length > 1 ? 's' : ''}
                             </span>
                           )}
-                          {card.matchType === 'hobby' && (
+                          {(card.details.sharedHobbies?.length ?? 0) > 0 && (
                             <span className="bg-amber-500/90 text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-lg border border-amber-400/20 shadow-sm flex items-center gap-1">
-                              <span>❤️</span> Mutual Hobby ({card.details.hobby?.name})
+                              <span>❤️</span> {card.details.sharedHobbies!.length} Shared Hobb{card.details.sharedHobbies!.length > 1 ? 'ies' : 'y'}
                             </span>
                           )}
-                          {card.matchType === 'fof' && (
+                          {(card.details.mutualFriends ?? 0) > 0 && (
                             <span className="bg-blue-500/90 text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-lg border border-blue-400/20 shadow-sm flex items-center gap-1">
-                              <span>🤝</span> Mutual classmate ({card.details.friends?.[0]?.name})
+                              <span>🤝</span> {card.details.mutualFriends} Mutual Friend{card.details.mutualFriends! > 1 ? 's' : ''}
+                            </span>
+                          )}
+                          {card.relevanceScore > 0 && (
+                            <span className="bg-white/20 text-white text-[9px] font-bold px-2 py-0.5 rounded-lg border border-white/10 backdrop-blur-xs flex items-center gap-1">
+                              <span>⚡</span> Score: {card.relevanceScore}
                             </span>
                           )}
                         </div>
@@ -880,7 +866,7 @@ export default function CampusMatchDashboard({
 
       {/* MATCH POPUP MODAL */}
       {matchPopup?.show && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
           
           <div className="relative w-full max-w-sm overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl text-center flex flex-col items-center animate-fade-in">
             
