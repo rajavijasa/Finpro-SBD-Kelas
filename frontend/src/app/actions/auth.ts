@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { db, users, userCourses, userHobbies, courses as coursesTable, hobbies as hobbiesTable, swipes } from '@/db';
 import { eq, and } from 'drizzle-orm';
 import { runCypher } from '@/lib/neo4j';
+import { getErrorMessage } from '@/lib/errors';
 
 // Deterministic Unsplash Stock Portraits
 const PORTRAITS = [
@@ -38,7 +39,21 @@ export async function loginAction(formData: FormData) {
     return { error: 'Please enter both username and password.' };
   }
 
-  const user = await db.select().from(users).where(eq(users.username, username)).limit(1);
+  let user: { password: string; fullName: string }[];
+  try {
+    user = await db
+      .select({ password: users.password, fullName: users.fullName })
+      .from(users)
+      .where(eq(users.username, username))
+      .limit(1);
+  } catch (err) {
+    console.error('loginAction DB Failed:', err);
+    return {
+      error:
+        'Database error. Pastikan frontend/.env.local sudah berisi DATABASE_URL dan schema sudah di-push (node scripts/drizzle-push.mjs).\n' +
+        `Detail: ${getErrorMessage(err)}`,
+    };
+  }
 
   if (user.length === 0) {
     return { error: 'Username not found.' };
@@ -78,50 +93,63 @@ export async function registerAction(formData: FormData) {
     return { error: 'Please fill in all required fields.' };
   }
 
-  const existing = await db.select().from(users).where(eq(users.username, username)).limit(1);
-  if (existing.length > 0) {
-    return { error: 'Username is already taken.' };
-  }
-
-  const avatarUrl = getRandomPortrait(fullName);
-
-  // A. Save to PostgreSQL Supabase using Drizzle
-  const insertedUser = await db.insert(users).values({
-    username,
-    password,
-    fullName,
-    phone,
-    university,
-    major,
-    year,
-    bio,
-    gender,
-    avatarUrl,
-  }).returning({ id: users.id });
-
-  const uId = insertedUser[0]?.id;
-  if (uId) {
-    const activeCourses = courses.length > 0 ? courses : ['DB210'];
-    for (const courseCode of activeCourses) {
-      const courseRec = await db.select().from(coursesTable).where(eq(coursesTable.code, courseCode)).limit(1);
-      if (courseRec.length > 0) {
-        await db.insert(userCourses).values({
-          userId: uId,
-          courseId: courseRec[0].id
-        });
-      }
+  let insertedUserId: number | undefined;
+  try {
+    const existing = await db.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1);
+    if (existing.length > 0) {
+      return { error: 'Username is already taken.' };
     }
 
-    const activeHobbies = hobbies.length > 0 ? hobbies : ['Gaming'];
-    for (const hobbyName of activeHobbies) {
-      const hobbyRec = await db.select().from(hobbiesTable).where(eq(hobbiesTable.name, hobbyName)).limit(1);
-      if (hobbyRec.length > 0) {
-        await db.insert(userHobbies).values({
-          userId: uId,
-          hobbyId: hobbyRec[0].id
-        });
+    const avatarUrl = getRandomPortrait(fullName);
+
+    // A. Save to PostgreSQL Supabase using Drizzle
+    const insertedUser = await db
+      .insert(users)
+      .values({
+        username,
+        password,
+        fullName,
+        phone,
+        university,
+        major,
+        year,
+        bio,
+        gender,
+        avatarUrl,
+      })
+      .returning({ id: users.id });
+
+    insertedUserId = insertedUser[0]?.id;
+    if (insertedUserId) {
+      const activeCourses = courses.length > 0 ? courses : ['DB210'];
+      for (const courseCode of activeCourses) {
+        const courseRec = await db.select().from(coursesTable).where(eq(coursesTable.code, courseCode)).limit(1);
+        if (courseRec.length > 0) {
+          await db.insert(userCourses).values({
+            userId: insertedUserId,
+            courseId: courseRec[0].id,
+          });
+        }
+      }
+
+      const activeHobbies = hobbies.length > 0 ? hobbies : ['Gaming'];
+      for (const hobbyName of activeHobbies) {
+        const hobbyRec = await db.select().from(hobbiesTable).where(eq(hobbiesTable.name, hobbyName)).limit(1);
+        if (hobbyRec.length > 0) {
+          await db.insert(userHobbies).values({
+            userId: insertedUserId,
+            hobbyId: hobbyRec[0].id,
+          });
+        }
       }
     }
+  } catch (err) {
+    console.error('registerAction DB Failed:', err);
+    return {
+      error:
+        'Database error. Pastikan frontend/.env.local sudah berisi DATABASE_URL dan schema sudah di-push (node scripts/drizzle-push.mjs).\n' +
+        `Detail: ${getErrorMessage(err)}`,
+    };
   }
 
   // B. Synchronize Node and All Core Relationships to Neo4j Aura DB
