@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { use, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { getErrorMessage } from '@/lib/errors';
 
 type GraphNode = {
@@ -27,56 +27,81 @@ type GraphResult =
   | { ok: false; error: string };
 
 const ForceGraph2D = dynamic(
-  () => import('react-force-graph').then((m) => m.ForceGraph2D),
+  () => import('react-force-graph-2d'),
   { ssr: false },
 );
 
-function extractError(json: unknown): string | undefined {
-  if (typeof json !== 'object' || json === null) return undefined;
-  if (!('error' in json)) return undefined;
-  const err = (json as { error?: unknown }).error;
-  return typeof err === 'string' ? err : undefined;
-}
-
-async function loadGraph(url: string): Promise<GraphResult> {
-  try {
-    const res = await fetch(url, { cache: 'no-store' });
-    const json: unknown = await res.json().catch(() => null);
-    if (!res.ok) {
-      return {
-        ok: false,
-        error: extractError(json) ?? `Request failed: ${res.status}`,
-      };
-    }
-
-    if (
-      typeof json !== 'object' ||
-      json === null ||
-      !('nodes' in json) ||
-      !('links' in json)
-    ) {
-      return { ok: false, error: 'Invalid graph response' };
-    }
-
-    return { ok: true, data: json as GraphData };
-  } catch (err) {
-    return { ok: false, error: getErrorMessage(err) };
-  }
-}
-
 export function GraphDemo({ userName }: { userName: string }) {
-  const url = useMemo(() => {
+  const [data, setData] = useState<GraphData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError(null);
+
     const params = new URLSearchParams({ userName });
-    return `/api/graph?${params.toString()}`;
+    const url = `/api/graph?${params.toString()}`;
+
+    fetch(url)
+      .then(async (res) => {
+        const json: unknown = await res.json().catch(() => null);
+        if (!res.ok) {
+          throw new Error(
+            json && typeof json === 'object' && 'error' in json && typeof json.error === 'string'
+              ? json.error
+              : `Request failed: ${res.status}`
+          );
+        }
+        if (
+          typeof json !== 'object' ||
+          json === null ||
+          !('nodes' in json) ||
+          !('links' in json)
+        ) {
+          throw new Error('Invalid graph response');
+        }
+        return json as GraphData;
+      })
+      .then((data) => {
+        if (active) {
+          setData(data);
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (active) {
+          setError(getErrorMessage(err));
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
   }, [userName]);
 
-  const promise = useMemo(() => loadGraph(url), [url]);
-  const result = use(promise);
+  if (loading) {
+    return (
+      <div className="flex h-[420px] items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-600 animate-pulse">
+        Loading graph...
+      </div>
+    );
+  }
 
-  if (!result.ok) {
+  if (error) {
     return (
       <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
-        Graph error: {result.error}
+        Graph error: {error}
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="flex h-[420px] items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-600">
+        No data available
       </div>
     );
   }
@@ -94,7 +119,7 @@ export function GraphDemo({ userName }: { userName: string }) {
   return (
     <div className="h-[420px] overflow-hidden rounded-lg border border-slate-200">
       <ForceGraph2D
-        graphData={result.data}
+        graphData={data}
         nodeId="id"
         nodeLabel={nodeLabel}
         nodeAutoColorBy="label"
