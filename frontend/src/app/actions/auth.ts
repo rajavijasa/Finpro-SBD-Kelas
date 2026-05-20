@@ -2,8 +2,8 @@
 
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { db, users, userCourses, userHobbies, courses as coursesTable, hobbies as hobbiesTable } from '@/db';
-import { eq } from 'drizzle-orm';
+import { db, users, userCourses, userHobbies, courses as coursesTable, hobbies as hobbiesTable, swipes } from '@/db';
+import { eq, and } from 'drizzle-orm';
 import { runCypher } from '@/lib/neo4j';
 
 // Deterministic Unsplash Stock Portraits
@@ -277,4 +277,274 @@ export async function logoutAction() {
   const cookieStore = await cookies();
   cookieStore.delete('session_user');
   redirect('/login');
+}
+
+// 5. RECORD SWIPE ACTION (With Dual-Database Parity and Mutual Match Verification)
+export async function recordSwipeAction(
+  swiperName: string,
+  targetName: string,
+  swipeType: 'like' | 'nope' | 'super'
+) {
+  try {
+    // 1. Resolve user IDs from PostgreSQL
+    const swiperResult = await db.select().from(users).where(eq(users.fullName, swiperName)).limit(1);
+    const targetResult = await db.select().from(users).where(eq(users.fullName, targetName)).limit(1);
+
+    if (swiperResult.length === 0 || targetResult.length === 0) {
+      return { error: 'Users not found.' };
+    }
+
+    const swiper = swiperResult[0];
+    const target = targetResult[0];
+
+    // Check if swipe already exists to avoid duplicate entries
+    const existingSwipe = await db
+      .select()
+      .from(swipes)
+      .where(and(eq(swipes.swiperId, swiper.id), eq(swipes.targetId, target.id)))
+      .limit(1);
+
+    if (existingSwipe.length === 0) {
+      // A. Save Swipe to PostgreSQL Drizzle
+      await db.insert(swipes).values({
+        swiperId: swiper.id,
+        targetId: target.id,
+        swipeType,
+      });
+
+      // B. Save Swipe to Neo4j Graph DB as a relationship
+      await runCypher(`
+        MATCH (s1:Student {name: $swiperName})
+        MATCH (s2:Student {name: $targetName})
+        MERGE (s1)-[r:SWIPED]->(s2)
+        SET r.type = $swipeType
+      `, { swiperName, targetName, swipeType });
+    }
+
+    // 2. Check if this is a "Nope" (No match possible)
+    if (swipeType === 'nope') {
+      return { isMatch: false };
+    }
+
+    // 3. Check if the target has already swiped right/up on swiper
+    const targetSwipe = await db
+      .select()
+      .from(swipes)
+      .where(and(eq(swipes.swiperId, target.id), eq(swipes.targetId, swiper.id)))
+      .limit(1);
+
+    // Check if target swipe is 'like' or 'super'
+    if (targetSwipe.length > 0) {
+      const type = targetSwipe[0].swipeType;
+      if (type === 'like' || type === 'super') {
+        // Yes, it is a mutual match!
+        // Sync mutual match to Neo4j as a MATCHES relationship (bi-directional as per rules)
+        await runCypher(`
+          MATCH (s1:Student {name: $swiperName})
+          MATCH (s2:Student {name: $targetName})
+          MERGE (s1)-[:MATCHES]->(s2)
+          MERGE (s2)-[:MATCHES]->(s1)
+        `, { swiperName, targetName });
+
+        return { isMatch: true };
+      }
+    }
+
+    return { isMatch: false };
+  } catch (err) {
+    console.error('recordSwipeAction Failed:', err);
+    return { error: 'Failed to record swipe.' };
+  }
+}
+
+// 6. FETCH SWIPE DECK ACTION (Unlimited, Relevance-Sorted, Already-Swiped Filtered)
+export type SwipeDeckCandidate = {
+  name: string;
+  university: string;
+  year: number;
+  bio: string;
+  gender: string;
+  major: string;
+  faculty: string;
+  avatarUrl: string;
+  relevanceScore: number;
+  sharedCourses: string[];
+  sharedHobbies: string[];
+  mutualFriends: number;
+};
+
+export async function fetchSwipeDeckAction(swiperName: string): Promise<SwipeDeckCandidate[]> {
+  try {
+    // 1. Get swiper user ID
+    const swiperResult = await db.select().from(users).where(eq(users.fullName, swiperName)).limit(1);
+    if (swiperResult.length === 0) return [];
+    const swiperId = swiperResult[0].id;
+
+    // 2. Fetch all already-swiped target IDs from PostgreSQL
+    const swipedRows = await db
+      .select({ targetId: swipes.targetId })
+      .from(swipes)
+      .where(eq(swipes.swiperId, swiperId));
+    const swipedTargetIds = new Set(swipedRows.map(r => r.targetId));
+
+    // 3. Fetch all candidates with relevance scoring from Neo4j
+    const result = await runCypher(`
+      MATCH (me:Student|User {name: $swiperName})
+
+      MATCH (other:Student|User)
+      WHERE other <> me
+
+      // Shared courses
+      OPTIONAL MATCH (me)-[:TAKES]->(c:Course)<-[:TAKES]-(other)
+      WITH me, other, collect(DISTINCT c.code) AS sharedCourseCodes
+
+      // Shared hobbies
+      OPTIONAL MATCH (me)-[:LIKES]->(h:Hobby)<-[:LIKES]-(other)
+      WITH me, other, sharedCourseCodes, collect(DISTINCT h.name) AS sharedHobbyNames
+
+      // Mutual friends
+      OPTIONAL MATCH (me)-[:CONNECTED_WITH]-(f:Student|User)-[:CONNECTED_WITH]-(other)
+      WITH other, sharedCourseCodes, sharedHobbyNames, count(DISTINCT f) AS mutualFriends
+
+      // Major info
+      OPTIONAL MATCH (other)-[:STUDIES]->(m:Major)
+
+      WITH other, sharedCourseCodes, sharedHobbyNames, mutualFriends, m,
+           size(sharedCourseCodes) + size(sharedHobbyNames) + mutualFriends AS relevanceScore
+
+      RETURN
+        other.name AS name,
+        coalesce(other.university, 'Campus Circle University') AS university,
+        coalesce(other.year, 2) AS year,
+        coalesce(other.bio, 'Ready to spark campus connections!') AS bio,
+        coalesce(other.gender, 'female') AS gender,
+        coalesce(m.name, 'Information Systems') AS major,
+        coalesce(m.faculty, 'Computing') AS faculty,
+        relevanceScore,
+        sharedCourseCodes,
+        sharedHobbyNames,
+        mutualFriends
+
+      ORDER BY relevanceScore DESC, name ASC
+    `, { swiperName });
+
+    // 4. Build user ID lookup from PostgreSQL for filtering
+    const allUsers = await db.select({ id: users.id, fullName: users.fullName, avatarUrl: users.avatarUrl }).from(users);
+    const userIdByName = new Map(allUsers.map(u => [u.fullName, u.id]));
+    const avatarByName = new Map(allUsers.map(u => [u.fullName, u.avatarUrl]));
+
+    // 5. Map results, filtering out already-swiped users
+    const candidates: SwipeDeckCandidate[] = [];
+    for (const record of result.records) {
+      const name = record.get('name') as string;
+      const userId = userIdByName.get(name);
+      if (!userId || swipedTargetIds.has(userId)) continue;
+      if (name === swiperName) continue;
+
+      const yearRaw = record.get('year');
+      const yearNum = typeof yearRaw === 'object' && yearRaw !== null && 'toNumber' in yearRaw
+        ? (yearRaw as any).toNumber() : Number(yearRaw) || 2;
+
+      const relevanceRaw = record.get('relevanceScore');
+      const relevanceNum = typeof relevanceRaw === 'object' && relevanceRaw !== null && 'toNumber' in relevanceRaw
+        ? (relevanceRaw as any).toNumber() : Number(relevanceRaw) || 0;
+
+      const mutualFriendsRaw = record.get('mutualFriends');
+      const mutualFriendsNum = typeof mutualFriendsRaw === 'object' && mutualFriendsRaw !== null && 'toNumber' in mutualFriendsRaw
+        ? (mutualFriendsRaw as any).toNumber() : Number(mutualFriendsRaw) || 0;
+
+      candidates.push({
+        name,
+        university: record.get('university') as string,
+        year: yearNum,
+        bio: record.get('bio') as string,
+        gender: record.get('gender') as string,
+        major: record.get('major') as string,
+        faculty: record.get('faculty') as string,
+        avatarUrl: avatarByName.get(name) || getRandomPortrait(name),
+        relevanceScore: relevanceNum,
+        sharedCourses: (record.get('sharedCourseCodes') as string[]) || [],
+        sharedHobbies: (record.get('sharedHobbyNames') as string[]) || [],
+        mutualFriends: mutualFriendsNum,
+      });
+    }
+
+    return candidates;
+  } catch (err) {
+    console.error('fetchSwipeDeckAction Failed:', err);
+    return [];
+  }
+}
+
+// 7. FETCH "WHO LIKED ME" DECK ACTION
+export type LikedMeCandidate = {
+  name: string;
+  university: string;
+  year: number;
+  bio: string;
+  gender: string;
+  major: string;
+  avatarUrl: string;
+  swipeType: string;
+};
+
+export async function fetchLikedMeDeckAction(userName: string): Promise<LikedMeCandidate[]> {
+  try {
+    // 1. Get current user ID
+    const userResult = await db.select().from(users).where(eq(users.fullName, userName)).limit(1);
+    if (userResult.length === 0) return [];
+    const userId = userResult[0].id;
+
+    // 2. Get IDs user has already swiped on
+    const swipedRows = await db
+      .select({ targetId: swipes.targetId })
+      .from(swipes)
+      .where(eq(swipes.swiperId, userId));
+    const swipedTargetIds = new Set(swipedRows.map(r => r.targetId));
+
+    // 3. Find all users who liked/super-liked the current user
+    const likedMeRows = await db
+      .select({
+        swiperId: swipes.swiperId,
+        swipeType: swipes.swipeType,
+      })
+      .from(swipes)
+      .where(and(eq(swipes.targetId, userId)));
+
+    // 4. Filter to only like/super and exclude already-swiped-back users
+    const likerIds: { id: number; swipeType: string }[] = [];
+    for (const row of likedMeRows) {
+      if ((row.swipeType === 'like' || row.swipeType === 'super') && !swipedTargetIds.has(row.swiperId)) {
+        likerIds.push({ id: row.swiperId, swipeType: row.swipeType });
+      }
+    }
+
+    if (likerIds.length === 0) return [];
+
+    // 5. Get full profile data for each liker
+    const allUsers = await db.select().from(users);
+    const userById = new Map(allUsers.map(u => [u.id, u]));
+
+    const candidates: LikedMeCandidate[] = [];
+    for (const liker of likerIds) {
+      const profile = userById.get(liker.id);
+      if (!profile || profile.fullName === userName) continue;
+
+      candidates.push({
+        name: profile.fullName,
+        university: profile.university || 'Campus Circle University',
+        year: profile.year || 2,
+        bio: profile.bio || 'Ready to spark campus connections!',
+        gender: profile.gender || 'female',
+        major: profile.major || 'Information Systems',
+        avatarUrl: profile.avatarUrl || getRandomPortrait(profile.fullName),
+        swipeType: liker.swipeType,
+      });
+    }
+
+    return candidates;
+  } catch (err) {
+    console.error('fetchLikedMeDeckAction Failed:', err);
+    return [];
+  }
 }
