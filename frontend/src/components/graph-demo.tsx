@@ -32,6 +32,8 @@ export function GraphDemo({ userName, isFullScreen = false }: { userName: string
   const [data, setData] = useState<GraphData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [onlyMyNetwork, setOnlyMyNetwork] = useState(false);
+  const [showSharedSparks, setShowSharedSparks] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -98,6 +100,57 @@ export function GraphDemo({ userName, isFullScreen = false }: { userName: string
         </div>
       </div>
     );
+  }
+
+  // 1. In-memory high speed reactive network filtering
+  let filteredData = data || { nodes: [], links: [] };
+  if (data && onlyMyNetwork) {
+    const myNode = data.nodes.find(n => n.isMe || n.caption === userName);
+    if (myNode) {
+      const myId = myNode.id;
+      const directConnectedIds = new Set<string>();
+      directConnectedIds.add(myId);
+
+      // Find direct links and connected nodes
+      data.links.forEach(link => {
+        const srcId = typeof link.source === 'object' ? (link.source as any).id : link.source;
+        const tgtId = typeof link.target === 'object' ? (link.target as any).id : link.target;
+
+        if (srcId === myId) {
+          directConnectedIds.add(tgtId);
+        } else if (tgtId === myId) {
+          directConnectedIds.add(srcId);
+        }
+      });
+
+      // Include 1-hop class-mates & hobby-mates if shared sparks is ticked
+      const extendedConnectedIds = new Set<string>(directConnectedIds);
+      if (showSharedSparks) {
+        data.links.forEach(link => {
+          const srcId = typeof link.source === 'object' ? (link.source as any).id : link.source;
+          const tgtId = typeof link.target === 'object' ? (link.target as any).id : link.target;
+
+          if (directConnectedIds.has(srcId)) {
+            extendedConnectedIds.add(tgtId);
+          }
+          if (directConnectedIds.has(tgtId)) {
+            extendedConnectedIds.add(srcId);
+          }
+        });
+      }
+
+      const filteredNodes = data.nodes.filter(n => extendedConnectedIds.has(n.id));
+      const filteredLinks = data.links.filter(link => {
+        const srcId = typeof link.source === 'object' ? (link.source as any).id : link.source;
+        const tgtId = typeof link.target === 'object' ? (link.target as any).id : link.target;
+        return extendedConnectedIds.has(srcId) && extendedConnectedIds.has(tgtId);
+      });
+
+      filteredData = {
+        nodes: filteredNodes,
+        links: filteredLinks
+      };
+    }
   }
 
   if (!data) {
@@ -168,13 +221,12 @@ export function GraphDemo({ userName, isFullScreen = false }: { userName: string
       ctx.lineWidth = 2.5;
       ctx.stroke();
     } else {
-      ctx.strokeStyle = isFullScreen ? "rgba(2, 6, 23, 0.9)" : "rgba(255, 255, 255, 0.8)";
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
       ctx.lineWidth = 1.0;
       ctx.stroke();
     }
 
     // 4. Draw high-legibility dynamic text labels directly on canvas for core hub nodes
-    // Render labels at lower zoom levels for even higher legibility
     const showText = isMe || type === 'Major' || (type === 'Hobby' && globalScale > 1.2) || globalScale > 2.0;
     if (showText) {
       const fontSize = isMe ? 13 / globalScale : 8.5 / globalScale;
@@ -185,8 +237,7 @@ export function GraphDemo({ userName, isFullScreen = false }: { userName: string
       const textWidth = ctx.measureText(label).width;
       const bPad = 2;
       
-      // Dynamic opaque backgrounds behind text to maximize contrast
-      ctx.fillStyle = isFullScreen ? "rgba(2, 6, 23, 0.92)" : "rgba(255, 255, 255, 0.95)";
+      ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
       ctx.fillRect(
         node.x - textWidth / 2 - bPad, 
         node.y - size - fontSize - bPad * 2, 
@@ -194,49 +245,83 @@ export function GraphDemo({ userName, isFullScreen = false }: { userName: string
         fontSize + bPad * 2
       );
       
-      // Text Fill
-      ctx.fillStyle = isMe ? "#f43f5e" : (isFullScreen ? "#e2e8f0" : "#1e293b");
+      ctx.fillStyle = isMe ? "#f43f5e" : "#1e293b";
       ctx.fillText(label, node.x, node.y - size - fontSize / 2 - 2);
     }
   };
 
-  // High contrast backgrounds & robust link opacity
-  const canvasBgColor = isFullScreen ? "rgba(2, 6, 23, 1)" : "rgba(255, 255, 255, 1)";
-  
-  // Significantly increased link opacity (0.08 on dark, 0.16 on light) so connections are beautifully clear
-  const wireColor = isFullScreen ? "rgba(56, 189, 248, 0.08)" : "rgba(148, 163, 184, 0.16)"; 
+  const canvasBgColor = isFullScreen ? "rgba(248, 250, 252, 1)" : "rgba(255, 255, 255, 1)";
+  const wireColor = isFullScreen ? "rgba(148, 163, 184, 0.22)" : "rgba(148, 163, 184, 0.16)"; 
   const linkWidth = isFullScreen ? 0.6 : 0.5;
 
   return (
-    <div className={`relative ${isFullScreen ? 'h-full w-full bg-slate-950' : 'h-[480px] overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm'}`}>
+    <div className={`relative ${isFullScreen ? 'h-full w-full bg-slate-50' : 'h-[480px] overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm'}`}>
       
       {/* Floating Dynamic Legend overlay with contrast styling */}
-      <div className={`absolute bottom-4 left-4 z-10 flex flex-wrap gap-2.5 backdrop-blur-sm p-3.5 rounded-xl border text-[10px] font-bold shadow-lg pointer-events-none ${isFullScreen ? 'bg-slate-900/95 border-slate-800/80 text-slate-300' : 'bg-white/95 border-slate-200/80 text-slate-600'}`}>
+      <div className={`absolute bottom-4 left-4 z-10 flex flex-wrap gap-2.5 backdrop-blur-sm p-3.5 rounded-xl border text-[10px] font-bold shadow-lg pointer-events-none bg-white/95 border-slate-200/80 text-slate-600`}>
         <div className="flex items-center gap-1.5 relative">
           <span className="h-2.5 w-2.5 rounded-full bg-rose-500 animate-ping absolute" />
           <span className="h-2.5 w-2.5 rounded-full bg-rose-500 relative" />
-          <span className={isFullScreen ? 'text-rose-400' : 'text-rose-600'}>Active Spark (You)</span>
+          <span className="text-rose-600">Active Spark (You)</span>
         </div>
         <div className="flex items-center gap-1">
-          <span className={`h-2.5 w-2.5 rounded-full ${isFullScreen ? 'bg-sky-400' : 'bg-blue-600'}`} />
-          <span>Student ({data.nodes.filter(n => n.label === 'User').length})</span>
+          <span className="h-2.5 w-2.5 rounded-full bg-blue-600" />
+          <span>Student ({filteredData.nodes.filter(n => n.label === 'User').length})</span>
         </div>
         <div className="flex items-center gap-1">
-          <span className="h-2.5 w-2.5 rounded-md bg-purple-400 border border-slate-850" />
+          <span className="h-2.5 w-2.5 rounded-md bg-purple-400 border border-slate-300" />
           <span>Major</span>
         </div>
         <div className="flex items-center gap-1">
-          <span className="h-2.5 w-2.5 rounded-md bg-emerald-400 border border-slate-850" />
+          <span className="h-2.5 w-2.5 rounded-md bg-emerald-400 border border-slate-300" />
           <span>Course</span>
         </div>
         <div className="flex items-center gap-1">
-          <span className="h-2.5 w-2.5 rounded-md bg-amber-400 border border-slate-850" />
+          <span className="h-2.5 w-2.5 rounded-md bg-amber-400 border border-slate-300" />
           <span>Hobby</span>
         </div>
       </div>
 
+      {/* Floating Dynamic Legend Filter Options (Glassmorphic) */}
+      <div className={`absolute top-4 right-4 z-10 flex flex-col gap-2 p-3 rounded-xl border shadow-lg backdrop-blur-md max-w-[240px] select-none bg-white/90 border-slate-200/80 text-slate-800`}>
+        <div className="flex items-center gap-1.5 border-b pb-1.5 mb-1 border-slate-200/20">
+          <span className="text-[10px] font-bold text-rose-500 uppercase tracking-wider animate-pulse">Radar Filter Control</span>
+        </div>
+        
+        <label className="flex items-start gap-2.5 cursor-pointer text-xs font-semibold select-none group">
+          <input
+            type="checkbox"
+            checked={onlyMyNetwork}
+            onChange={(e) => {
+              setOnlyMyNetwork(e.target.checked);
+              if (!e.target.checked) setShowSharedSparks(false);
+            }}
+            className="mt-0.5 rounded border-slate-350 text-rose-650 focus:ring-rose-500 cursor-pointer accent-rose-500 h-3.5 w-3.5"
+          />
+          <div className="flex flex-col">
+            <span>My Personal Orbit</span>
+            <span className="text-[9px] text-slate-400 font-normal mt-0.5">Filter only my major, courses & hobbies</span>
+          </div>
+        </label>
+
+        {onlyMyNetwork && (
+          <label className="flex items-start gap-2.5 cursor-pointer text-xs font-semibold select-none group border-t border-slate-200/10 pt-2 mt-1 animate-fadeIn">
+            <input
+              type="checkbox"
+              checked={showSharedSparks}
+              onChange={(e) => setShowSharedSparks(e.target.checked)}
+              className="mt-0.5 rounded border-slate-350 text-rose-650 focus:ring-rose-500 cursor-pointer accent-rose-500 h-3.5 w-3.5"
+            />
+            <div className="flex flex-col">
+              <span>Show Shared Sparks</span>
+              <span className="text-[9px] text-slate-400 font-normal mt-0.5">Reveal other students in my class & hobby circles</span>
+            </div>
+          </label>
+        )}
+      </div>
+
       <ForceGraph2D
-        graphData={data}
+        graphData={filteredData}
         nodeId="id"
         nodeLabel={nodeLabel}
         linkLabel={linkLabel}

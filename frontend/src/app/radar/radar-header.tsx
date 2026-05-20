@@ -1,22 +1,13 @@
-'use client';
-
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 interface RadarHeaderProps {
   currentUser: string;
-  allUsers: string[];
 }
 
-export function RadarHeader({ currentUser, allUsers }: RadarHeaderProps) {
-  const router = useRouter();
-
-  const handleUserChange = (newUser: string) => {
-    router.push(`/radar?userName=${newUser}`);
-  };
+export function RadarHeader({ currentUser }: RadarHeaderProps) {
 
   return (
-    <header className="z-20 bg-slate-950/80 backdrop-blur-md border-b border-slate-800/60 px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shrink-0 shadow-lg">
+    <header className="z-20 bg-white/80 backdrop-blur-md border-b border-slate-200 px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shrink-0 shadow-sm">
       <div className="flex items-center gap-3">
         <Link 
           href={`/?userName=${currentUser}`}
@@ -26,40 +17,31 @@ export function RadarHeader({ currentUser, allUsers }: RadarHeaderProps) {
         </Link>
         <div>
           <div className="flex items-baseline gap-1.5">
-            <h1 className="text-sm font-extrabold tracking-tight text-white">
+            <h1 className="text-sm font-extrabold tracking-tight text-slate-900">
               CampusCircle Nebula Radar
             </h1>
-            <span className="text-[9px] font-bold text-rose-500 tracking-wider uppercase bg-rose-500/10 px-1.5 py-0.5 rounded">
+            <span className="text-[9px] font-bold text-rose-600 tracking-wider uppercase bg-rose-500/10 px-1.5 py-0.5 rounded">
               Universal View
             </span>
           </div>
-          <p className="text-[10px] text-slate-400 font-semibold mt-0.5">
+          <p className="text-[10px] text-slate-500 font-semibold mt-0.5">
             Real-time interactive rendering of all 1000+ student social orbits & academic hubs
           </p>
         </div>
       </div>
 
       <div className="flex items-center gap-3 self-end sm:self-center">
-        {/* Dynamic Profile Selector Dropdown */}
-        <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800/80 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-400">
-          <span>Highlight Node:</span>
-          <select
-            value={currentUser}
-            onChange={(e) => handleUserChange(e.target.value)}
-            className="bg-transparent border-none text-white font-extrabold focus:outline-none focus:ring-0 cursor-pointer pr-1"
-          >
-            {allUsers.map((u) => (
-              <option key={u} value={u} className="bg-slate-900 text-slate-200 font-semibold">
-                {u}
-              </option>
-            ))}
-          </select>
+        {/* Active Authenticated Node Indicator */}
+        <div className="flex items-center gap-2 bg-rose-50 border border-rose-100/80 px-3.5 py-2 rounded-xl text-xs font-semibold">
+          <span className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
+          <span className="text-slate-500">Highlighted Node:</span>
+          <span className="text-slate-900 font-black">{currentUser} 🔴</span>
         </div>
 
         {/* Back Button */}
         <Link
-          href={`/?userName=${currentUser}`}
-          className="bg-rose-500 hover:bg-rose-600 active:scale-95 transition-all text-white font-bold text-xs px-4 py-2 rounded-xl shadow-md shadow-rose-500/10"
+          href="/"
+          className="bg-slate-950 hover:bg-slate-900 active:scale-95 transition-all text-white font-extrabold text-xs px-4 py-2 rounded-xl shadow-md"
         >
           Back to Match App
         </Link>

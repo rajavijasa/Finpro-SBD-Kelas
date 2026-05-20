@@ -30,7 +30,7 @@ function captionForNode(label: string, props: Record<string, unknown>): string {
   const code = asString(props.code);
   const subject = asString(props.subject);
 
-  if (label === 'User') return name ?? 'User';
+  if (label === 'User' || label === 'Student') return name ?? 'User';
   if (label === 'Course') return code ?? subject ?? 'Course';
   if (label === 'Major') return name ?? 'Major';
   if (label === 'Hobby') return name ?? 'Hobby';
@@ -39,7 +39,10 @@ function captionForNode(label: string, props: Record<string, unknown>): string {
 
 function nodeToGraphNode(node: Node, meElementId?: string): GraphNode {
   const props = neo4jToNative(node.properties) as Record<string, unknown>;
-  const label = primaryLabel(node.labels);
+  let label = primaryLabel(node.labels);
+  if (label === 'Student') {
+    label = 'User';
+  }
   return {
     id: node.elementId,
     label,

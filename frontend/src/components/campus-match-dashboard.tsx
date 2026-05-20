@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { GraphDemo } from './graph-demo';
+import { logoutAction, updateProfileAction } from '@/app/actions/auth';
 
 // Deterministic high-definition stock student portraits from Unsplash
 const PORTRAITS = [
@@ -76,14 +77,71 @@ export type HobbyClusterResult = {
   hobby: HobbySummary;
 };
 
+export type StudentProfile = {
+  fullName: string;
+  username: string;
+  phone: string | null;
+  university: string | null;
+  major: string | null;
+  year: number | null;
+  bio: string | null;
+  gender: string | null;
+  avatarUrl: string | null;
+  courses: string[];
+  hobbies: string[];
+};
+
 interface CampusMatchDashboardProps {
   currentUser: string;
-  currentHobby: string;
+  currentHobby?: string;
   mutualMatches: MutualClassResult[];
   fofMatches: FofResult[];
   hobbyMatches: HobbyClusterResult[];
   allUsers?: string[];
+  profileData: StudentProfile;
 }
+
+const FACULTY_MAP: Record<string, 'Computing' | 'Engineering' | 'Business' | 'Art & Design'> = {
+  'Information Systems': 'Computing',
+  'Computer Science': 'Computing',
+  'Software Engineering': 'Computing',
+  'Mechanical Engineering': 'Engineering',
+  'Electrical Engineering': 'Engineering',
+  'Civil Engineering': 'Engineering',
+  'Business Administration': 'Business',
+  'Finance & Accounting': 'Business',
+  'Marketing & Communication': 'Business',
+  'Visual Communication Design': 'Art & Design',
+  'Interior Design': 'Art & Design',
+  'Digital Media Production': 'Art & Design',
+};
+
+const COURSES_BY_FACULTY = {
+  Computing: [
+    { code: 'CS102', name: 'CS102 (Data Structures)' },
+    { code: 'DB210', name: 'DB210 (Database Systems)' },
+    { code: 'SE302', name: 'SE302 (Software Architecture)' },
+    { code: 'AI401', name: 'AI401 (Machine Learning Intro)' },
+  ],
+  Engineering: [
+    { code: 'ME201', name: 'ME201 (Thermodynamics)' },
+    { code: 'EE110', name: 'EE110 (Basic Electrical Circuits)' },
+    { code: 'CE320', name: 'CE320 (Structural Analysis)' },
+    { code: 'ME305', name: 'ME305 (Fluid Mechanics)' },
+  ],
+  Business: [
+    { code: 'PM301', name: 'PM301 (Project Management)' },
+    { code: 'FN202', name: 'FN202 (Corporate Finance)' },
+    { code: 'MK105', name: 'MK105 (Principles of Marketing)' },
+    { code: 'BA410', name: 'BA410 (Strategic Management)' },
+  ],
+  'Art & Design': [
+    { code: 'GD101', name: 'GD101 (Graphic Design Basics)' },
+    { code: 'ID205', name: 'ID205 (Space Planning & Modeling)' },
+    { code: 'DM310', name: 'DM310 (UI/UX & Web Design)' },
+    { code: 'GD302', name: 'GD302 (Typography & Branding)' },
+  ],
+};
 
 
 // Minimalistic styling configuration for demo profiles
@@ -152,15 +210,44 @@ interface TinderCandidate {
 
 export default function CampusMatchDashboard({
   currentUser,
-  currentHobby,
   mutualMatches,
   fofMatches,
   hobbyMatches,
   allUsers,
+  profileData,
 }: CampusMatchDashboardProps) {
+  const colors = [
+    { text: "text-rose-600", bg: "bg-rose-50 border-rose-100", dot: "bg-rose-500" },
+    { text: "text-blue-600", bg: "bg-blue-50 border-blue-100", dot: "bg-blue-500" },
+    { text: "text-fuchsia-600", bg: "bg-fuchsia-50 border-fuchsia-100", dot: "bg-fuchsia-500" },
+    { text: "text-amber-600", bg: "bg-amber-50 border-amber-100", dot: "bg-amber-500" },
+    { text: "text-teal-600", bg: "bg-teal-50 border-teal-100", dot: "bg-teal-500" },
+    { text: "text-violet-600", bg: "bg-violet-50 border-violet-100", dot: "bg-violet-500" }
+  ];
+  
+  const charCodeSum = currentUser.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  const pickedColor = colors[charCodeSum % colors.length];
+
+  const myProfile = {
+    bio: profileData.bio || "Campus student ready to spark connections! 🎓✨ Passionate about sharing ideas and collaborating across campus.",
+    gender: (profileData.gender as 'male' | 'female') || 'female',
+    major: profileData.major || 'Information Systems',
+    faculty: FACULTY_MAP[profileData.major || 'Information Systems'] || 'Computing',
+    colorStyle: pickedColor
+  };
+
   const router = useRouter();
   const [showRadar, setShowRadar] = useState(true);
   const [matchPopup, setMatchPopup] = useState<{ show: boolean; targetName: string } | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
+  const [settingsMajor, setSettingsMajor] = useState<string>('Information Systems');
+
+  useEffect(() => {
+    if (showSettings) {
+      setSettingsMajor(myProfile.major || 'Information Systems');
+    }
+  }, [showSettings, myProfile.major]);
 
   const userList = allUsers && allUsers.length > 0 ? allUsers : Object.keys(USER_PROFILES);
 
@@ -264,25 +351,7 @@ export default function CampusMatchDashboard({
     setFlyOutDirection(null);
   }, [mutualMatches, fofMatches, hobbyMatches, currentUser]);
 
-  const colors = [
-    { text: "text-rose-600", bg: "bg-rose-50 border-rose-100", dot: "bg-rose-500" },
-    { text: "text-blue-600", bg: "bg-blue-50 border-blue-100", dot: "bg-blue-500" },
-    { text: "text-fuchsia-600", bg: "bg-fuchsia-50 border-fuchsia-100", dot: "bg-fuchsia-500" },
-    { text: "text-amber-600", bg: "bg-amber-50 border-amber-100", dot: "bg-amber-500" },
-    { text: "text-teal-600", bg: "bg-teal-50 border-teal-100", dot: "bg-teal-500" },
-    { text: "text-violet-600", bg: "bg-violet-50 border-violet-100", dot: "bg-violet-500" }
-  ];
-  
-  const charCodeSum = currentUser.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  const pickedColor = colors[charCodeSum % colors.length];
 
-  const myProfile = USER_PROFILES[currentUser] ?? {
-    bio: "Campus student ready to spark connections! 🎓✨ Passionate about sharing ideas and collaborating across campus.",
-    gender: charCodeSum % 2 === 0 ? 'male' : 'female',
-    major: "Undergraduate",
-    faculty: "General Studies",
-    colorStyle: pickedColor
-  };
 
   const handleUserChange = (newUser: string) => {
     const defaultHobbies: Record<string, string> = {
@@ -298,7 +367,25 @@ export default function CampusMatchDashboard({
   };
 
   const handleHobbyChange = (newHobby: string) => {
-    router.push(`/?userName=${currentUser}&hobbyName=${newHobby}`);
+    router.push(`/?hobbyName=${newHobby}`);
+    // Break Next.js App Router client cache by triggering server re-validation
+    setTimeout(() => {
+      router.refresh();
+    }, 50);
+  };
+
+  const handleSaveSettings = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setIsUpdatingSettings(true);
+    const formData = new FormData(e.currentTarget);
+    const result = await updateProfileAction(formData);
+    setIsUpdatingSettings(false);
+    if (result.success) {
+      setShowSettings(false);
+      router.refresh();
+    } else {
+      alert(`Error: ${result.error}`);
+    }
   };
 
   const swipe = (direction: 'left' | 'right' | 'up') => {
@@ -462,21 +549,25 @@ export default function CampusMatchDashboard({
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Minimal Profile Dropdown Switcher */}
-            <div className="flex items-center gap-1.5 bg-slate-100/80 px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-600">
-              <span className="text-slate-400">Profile:</span>
-              <select
-                value={currentUser}
-                onChange={(e) => handleUserChange(e.target.value)}
-                className="bg-transparent border-none text-slate-900 font-extrabold focus:outline-none focus:ring-0 cursor-pointer pr-1"
-              >
-                {userList.map((u) => (
-                  <option key={u} value={u} className="bg-white text-slate-800 font-semibold">
-                    {u}
-                  </option>
-                ))}
-              </select>
+            {/* Logged in User Display & Logout Button */}
+            <div className="flex items-center gap-2 bg-rose-500/10 px-3 py-1.5 rounded-xl border border-rose-500/10">
+              <span className="text-[10px] font-bold text-rose-600 uppercase tracking-widest">Active:</span>
+              <span className="text-xs font-black text-slate-900">{currentUser} ✨</span>
             </div>
+            
+            <button
+              onClick={() => setShowSettings(true)}
+              className="flex items-center gap-1 bg-slate-100 hover:bg-slate-200 transition-colors text-slate-700 font-extrabold text-xs px-3.5 py-2 rounded-xl cursor-pointer shadow-sm hover:scale-[1.02] active:scale-[0.98]"
+            >
+              Edit Orbits ⚙️
+            </button>
+
+            <button
+              onClick={() => logoutAction()}
+              className="flex items-center gap-1 bg-slate-900 hover:bg-slate-800 transition-colors text-white font-extrabold text-xs px-3.5 py-2 rounded-xl cursor-pointer shadow-sm hover:scale-[1.02] active:scale-[0.98]"
+            >
+              Sign Out 🚪
+            </button>
           </div>
         </div>
       </header>
@@ -511,21 +602,17 @@ export default function CampusMatchDashboard({
               "{myProfile.bio}"
             </p>
 
-            {/* Hobby selector details */}
-            <div className="mt-4 border-t border-slate-100 pt-3 flex flex-wrap gap-3 items-center justify-center md:justify-start text-[11px] text-slate-500 font-semibold">
-              <span>Matching Hobby Category:</span>
-              <div className="bg-slate-100 hover:bg-slate-200/80 px-2.5 py-1 rounded-md text-slate-800 transition-colors">
-                <select
-                  value={currentHobby}
-                  onChange={(e) => handleHobbyChange(e.target.value)}
-                  className="bg-transparent border-none text-slate-900 font-extrabold focus:outline-none focus:ring-0 cursor-pointer pr-1"
-                >
-                  <option value="Gaming" className="bg-white">Gaming 🎮</option>
-                  <option value="Football" className="bg-white">Football ⚽</option>
-                  <option value="Basketball" className="bg-white">Basketball 🏀</option>
-                </select>
+            {/* Hobbies Badges display from user's registered list! */}
+            {profileData.hobbies.length > 0 && (
+              <div className="mt-4 border-t border-slate-100 pt-3 flex flex-wrap gap-1.5 items-center justify-center md:justify-start text-[11px] text-slate-500 font-semibold">
+                <span>My Registered Hobbies:</span>
+                {profileData.hobbies.map((hob) => (
+                  <span key={hob} className="rounded-md bg-rose-50 px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-rose-600 border border-rose-100/50">
+                    {hob}
+                  </span>
+                ))}
               </div>
-            </div>
+            )}
           </div>
         </section>
 
@@ -752,8 +839,6 @@ export default function CampusMatchDashboard({
                 <div className="mt-5">
                   <a
                     href={`/radar?userName=${currentUser}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
                     className="inline-flex items-center justify-center w-full gap-2 bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 active:scale-[0.98] transition-all text-white font-extrabold text-xs py-3 px-4 rounded-xl shadow-lg shadow-rose-500/20 group-hover:shadow-rose-500/30"
                   >
                     <span>Launch Fullscreen Radar</span>
@@ -859,6 +944,135 @@ export default function CampusMatchDashboard({
                 Keep Swiping ✨
               </button>
             </div>
+
+          </div>
+
+        </div>
+      )}
+
+      {/* Sleek Glassmorphic Settings Modal */}
+      {showSettings && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-md px-6 py-12 overflow-y-auto">
+          
+          <div className="w-full max-w-lg bg-white border border-slate-200 p-8 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] flex flex-col max-h-[85vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
+            
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3 mb-5">
+              <div className="flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-rose-500 text-white font-bold text-xs shadow-sm">⚙️</span>
+                <span className="text-sm font-extrabold text-slate-900 uppercase tracking-wide">Configure Your Orbits</span>
+              </div>
+              <button 
+                onClick={() => setShowSettings(false)}
+                className="text-slate-400 hover:text-slate-650 font-extrabold text-xs bg-slate-100 px-2.5 py-1 rounded-lg"
+              >
+                Close ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveSettings} className="space-y-4 text-left">
+              
+              <div>
+                <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Academic Major</label>
+                <select 
+                  name="major"
+                  value={settingsMajor}
+                  onChange={(e) => setSettingsMajor(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none cursor-pointer"
+                >
+                  {Object.keys(FACULTY_MAP).map(maj => (
+                    <option key={maj} value={maj}>{maj}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Academic Year</label>
+                  <select 
+                    name="year"
+                    defaultValue={profileData.year || 2}
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none cursor-pointer"
+                  >
+                    <option value="1">Year 1</option>
+                    <option value="2">Year 2</option>
+                    <option value="3">Year 3</option>
+                    <option value="4">Year 4</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Contact Phone</label>
+                  <input 
+                    type="text" 
+                    name="phone"
+                    defaultValue={profileData.phone || ''}
+                    placeholder="+62..." 
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Bio statement</label>
+                <textarea 
+                  name="bio"
+                  rows={2}
+                  defaultValue={profileData.bio || ''}
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/20 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none resize-none"
+                />
+              </div>
+
+              {/* Multi-select relationships */}
+              <div className="border-t border-slate-100 pt-3">
+                <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2 ml-1">
+                  Select Enrolled Courses ({(FACULTY_MAP[settingsMajor] ?? 'Computing')} Faculty Relations)
+                </label>
+                <div key={settingsMajor} className="grid grid-cols-2 gap-2">
+                  {(COURSES_BY_FACULTY[FACULTY_MAP[settingsMajor] ?? 'Computing'] ?? COURSES_BY_FACULTY.Computing).map((course) => (
+                    <label key={course.code} className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-lg text-[10px] text-slate-700 cursor-pointer hover:border-rose-500/30 transition-colors">
+                      <input type="checkbox" name="courses" value={course.code} defaultChecked={profileData.courses.includes(course.code)} className="accent-rose-500" />
+                      <span>{course.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100 pt-3">
+                <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2 ml-1">Select Hobbies (LIKES Graph Relations)</label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {[
+                    { value: 'Chess', label: 'Chess ♟️' },
+                    { value: 'Coding', label: 'Coding 💻' },
+                    { value: 'Cooking', label: 'Cooking 🍳' },
+                    { value: 'Football', label: 'Football ⚽' },
+                    { value: 'Photography', label: 'Photography 📷' },
+                    { value: 'Basketball', label: 'Basketball 🏀' },
+                    { value: 'Hiking', label: 'Hiking 🥾' },
+                    { value: 'Music Production', label: 'Music Prod 🎵' },
+                    { value: 'Yoga', label: 'Yoga 🧘' },
+                  ].map((hobby) => (
+                    <label key={hobby.value} className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-lg text-[9px] text-slate-700 cursor-pointer hover:border-rose-500/30 transition-colors">
+                      <input type="checkbox" name="hobbies" value={hobby.value} defaultChecked={profileData.hobbies.includes(hobby.value)} className="accent-rose-500" />
+                      <span>{hobby.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Submit Settings */}
+              <button
+                type="submit"
+                disabled={isUpdatingSettings}
+                className="w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-50 transition-all text-white font-extrabold text-xs py-3 px-4 rounded-xl shadow-md mt-6 flex items-center justify-center gap-2"
+              >
+                {isUpdatingSettings ? (
+                  <span>Saving Orbits ... 🪐</span>
+                ) : (
+                  <span>Save Profile Orbits 🚀</span>
+                )}
+              </button>
+
+            </form>
 
           </div>
 
