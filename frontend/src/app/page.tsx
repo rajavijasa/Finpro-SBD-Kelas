@@ -61,9 +61,9 @@ export default async function Home() {
               <div className="text-sm text-slate-500">Tidak ada data.</div>
             ) : (
               <ul className="space-y-3">
-                {mutual.value.map((item) => (
+                {mutual.value.map((item, index) => (
                   <li
-                    key={item.user.name}
+                    key={`${item.user.name}-${index}`}
                     className="rounded-lg border border-slate-200 p-3"
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -111,9 +111,9 @@ export default async function Home() {
               <div className="text-sm text-slate-500">Tidak ada data.</div>
             ) : (
               <ul className="space-y-3">
-                {fof.value.map((item) => (
+                {fof.value.map((item, index) => (
                   <li
-                    key={item.user.name}
+                    key={`${item.user.name}-${index}`}
                     className="rounded-lg border border-slate-200 p-3"
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -154,9 +154,9 @@ export default async function Home() {
               <div className="text-sm text-slate-500">Tidak ada data.</div>
             ) : (
               <ul className="space-y-3">
-                {hobby.value.map((item) => (
+                {hobby.value.map((item, index) => (
                   <li
-                    key={`${item.user.name}-${item.hobby.name}`}
+                    key={`${item.user.name}-${item.hobby.name}-${index}`}
                     className="rounded-lg border border-slate-200 p-3"
                   >
                     <div className="font-medium">{item.user.name}</div>
