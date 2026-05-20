@@ -1,4 +1,4 @@
-import neo4j, { type Node, type Path, type Relationship } from 'neo4j-driver';
+import neo4j, { type Node, type Relationship } from 'neo4j-driver';
 import { NextResponse } from 'next/server';
 import { getNeo4jDriver, runCypher } from '@/lib/neo4j';
 import { neo4jToNative } from '@/lib/neo4j-json';
@@ -10,6 +10,7 @@ type GraphNode = {
   id: string;
   label: string;
   caption: string;
+  isMe?: boolean;
 };
 
 type GraphLink = {
@@ -36,95 +37,83 @@ function captionForNode(label: string, props: Record<string, unknown>): string {
   return name ?? label;
 }
 
-function nodeToGraphNode(node: Node): GraphNode {
+function nodeToGraphNode(node: Node, meElementId?: string): GraphNode {
   const props = neo4jToNative(node.properties) as Record<string, unknown>;
   const label = primaryLabel(node.labels);
   return {
     id: node.elementId,
     label,
     caption: captionForNode(label, props),
+    isMe: meElementId ? node.elementId === meElementId : false,
   };
 }
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const userName = searchParams.get('userName');
-  const limitPathsRaw = Number(searchParams.get('limitPaths') ?? 120);
-  const limitPathsNormalized = Number.isFinite(limitPathsRaw) ? limitPathsRaw : 120;
-  const limitPaths = Math.max(1, Math.min(300, limitPathsNormalized));
-
-  if (!userName) {
-    return NextResponse.json({ error: 'Missing query param: userName' }, { status: 400 });
-  }
+  const userName = searchParams.get('userName') ?? 'Alice';
 
   try {
-    // Validate env early (helps give a clear error instead of partial graph)
+    // Validate driver connection
     getNeo4jDriver();
 
+    // 1. Fetch current active user node to track and highlight
     const meRes = await runCypher(
       `
         MATCH (me:User|Student {name: $userName})
-        WITH me, COUNT { (me)--() } AS meDegree
-        ORDER BY meDegree DESC
-        LIMIT 1
         RETURN me
+        LIMIT 1
       `,
       { userName },
     );
 
-    if (meRes.records.length === 0) {
-      return NextResponse.json(
-        { error: `User not found: ${userName}` },
-        { status: 404 },
-      );
+    let meNode: Node | null = null;
+    if (meRes.records.length > 0) {
+      meNode = meRes.records[0].get('me') as Node;
     }
 
-    const meNode = meRes.records[0].get('me') as Node;
-
-    const pathsRes = await runCypher(
+    // 2. Fetch the ENTIRE global cosmic university network (All nodes that have active relationships)
+    // By matching all relationships directly, we guarantee 0 floating disconnected nodes that break the force camera bounds!
+    const globalRes = await runCypher(
       `
-        MATCH (me:User|Student {name: $userName})
-        WITH me, COUNT { (me)--() } AS meDegree
-        ORDER BY meDegree DESC
-        LIMIT 1
-
-        MATCH p=(me)-[:CONNECTED_WITH|TAKES|STUDIES|LIKES*1..2]-(n)
-        RETURN p
-        LIMIT $limitPaths
+        MATCH (n1)-[r:CONNECTED_WITH|TAKES|STUDIES|LIKES]->(n2)
+        RETURN n1, r, n2
       `,
-      { userName, limitPaths: neo4j.int(limitPaths) },
     );
 
     const nodeMap = new Map<string, GraphNode>();
     const linkMap = new Map<string, GraphLink>();
 
+    const meId = meNode?.elementId;
+
     const upsertNode = (n: Node) => {
-      if (!nodeMap.has(n.elementId)) nodeMap.set(n.elementId, nodeToGraphNode(n));
+      if (!nodeMap.has(n.elementId)) {
+        nodeMap.set(n.elementId, nodeToGraphNode(n, meId));
+      }
     };
 
     const upsertLink = (
       rel: Relationship,
-      start: Node,
-      end: Node,
+      startId: string,
+      endId: string,
     ) => {
       if (linkMap.has(rel.elementId)) return;
       linkMap.set(rel.elementId, {
         id: rel.elementId,
-        source: start.elementId,
-        target: end.elementId,
+        source: startId,
+        target: endId,
         type: rel.type,
       });
     };
 
-    upsertNode(meNode);
+    // Process all global connections
+    for (const record of globalRes.records) {
+      const n1 = record.get('n1') as Node;
+      const r = record.get('r') as Relationship;
+      const n2 = record.get('n2') as Node;
 
-    for (const record of pathsRes.records) {
-      const p = record.get('p') as Path;
-      for (const s of p.segments) {
-        upsertNode(s.start);
-        upsertNode(s.end);
-        upsertLink(s.relationship, s.start, s.end);
-      }
+      upsertNode(n1);
+      upsertNode(n2);
+      upsertLink(r, n1.elementId, n2.elementId);
     }
 
     return NextResponse.json({
