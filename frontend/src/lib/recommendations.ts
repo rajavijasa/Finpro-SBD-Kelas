@@ -117,7 +117,6 @@ export async function friendOfFriendRecommendations(input: {
 
 export async function hobbyCluster(input: {
   userName: string;
-  hobbyName: string;
   limit?: number;
 }): Promise<HobbyClusterResult[]> {
   const raw = input.limit;
@@ -130,18 +129,10 @@ export async function hobbyCluster(input: {
     ORDER BY meDegree DESC
     LIMIT 1
 
-    OPTIONAL MATCH (me)-[:STUDIES]->(myMajor:Major)
-    WITH me, myMajor.faculty AS myFaculty
-
-    MATCH (h:Hobby)
-    WHERE toLower(h.name) = toLower($hobbyName)
-
-    MATCH (other:User|Student)-[:LIKES]->(h)
+    MATCH (me)-[:LIKES]->(h:Hobby)<-[:LIKES]-(other:User|Student)
     WHERE other <> me
     OPTIONAL MATCH (other)-[:STUDIES]->(otherMajor:Major)
-    WITH other, otherMajor, h, myFaculty
-    WHERE myFaculty IS NULL OR otherMajor IS NULL OR otherMajor.faculty <> myFaculty
-
+    WITH other, otherMajor, h
     RETURN
       other{.name, .university, .year} AS user,
       CASE WHEN otherMajor IS NULL THEN NULL ELSE otherMajor{.name, .faculty} END AS major,
@@ -152,7 +143,6 @@ export async function hobbyCluster(input: {
 
   const result = await runCypher(cypher, {
     userName: input.userName,
-    hobbyName: input.hobbyName,
     limit: neo4j.int(limit),
   });
 

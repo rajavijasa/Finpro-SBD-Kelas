@@ -10,8 +10,10 @@
     "neo4j:seed": "node scripts/neo4j-seed.mjs"
   },
   "dependencies": {
+    "drizzle-orm": "^0.45.2",
     "neo4j-driver": "^6.0.1",
     "next": "16.2.6",
+    "postgres": "^3.4.9",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-force-graph": "^1.48.2",
@@ -24,6 +26,7 @@
     "@types/react-dom": "^19",
     "autoprefixer": "^10.5.0",
     "babel-plugin-react-compiler": "1.0.0",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "postcss": "^8.5.15",
