@@ -77,6 +77,56 @@ The PostgreSQL database is normalized to **Third Normal Form (3NF)** to avoid du
 | `user_courses` | `user_id`, `course_id` | Many-to-many: students ↔ courses |
 | `user_hobbies` | `user_id`, `hobby_id` | Many-to-many: students ↔ hobbies |
 
+```mermaid
+erDiagram
+    users {
+        SERIAL id PK
+        VARCHAR full_name
+        VARCHAR username UK
+        VARCHAR password
+        VARCHAR phone_number UK
+        VARCHAR university
+        INTEGER year
+        TEXT bio
+        INTEGER major_id FK
+    }
+
+    majors {
+        SERIAL id PK
+        VARCHAR name UK
+        VARCHAR faculty
+    }
+
+    courses {
+        SERIAL id PK
+        VARCHAR code UK
+        VARCHAR name
+        VARCHAR faculty
+    }
+
+    hobbies {
+        SERIAL id PK
+        VARCHAR name UK
+        VARCHAR category
+    }
+
+    user_courses {
+        INTEGER user_id FK
+        INTEGER course_id FK
+    }
+
+    user_hobbies {
+        INTEGER user_id FK
+        INTEGER hobby_id FK
+    }
+
+    majors ||--o{ users : "has students"
+    users ||--o{ user_courses : "enrolls in"
+    courses ||--o{ user_courses : "has students"
+    users ||--o{ user_hobbies : "selects"
+    hobbies ||--o{ user_hobbies : "chosen by"
+```
+
 ### 🕸️ Graph Database Schema (Neo4j)
 
 ```mermaid
@@ -188,6 +238,9 @@ RETURN DISTINCT s2.name;
 | 9 | 59 | 36 | 133 | 152 | 20,140 | 653 |
 | 10 | 59 | 56 | 110 | 170 | 16,939 | 605 |
 
+![image](https://hackmd.io/_uploads/HkP78X3JGl.png)
+
+![image](https://hackmd.io/_uploads/rJmhUX31Me.png)
 
 ### 🔑 Key Insights & Conclusion
 
@@ -196,11 +249,6 @@ RETURN DISTINCT s2.name;
 - **🟢 Graph DB Flat Scale:** In contrast, Neo4j takes only **~646ms** (mean) at Depth 3. By utilizing **Index-Free Adjacency** combined with `WITH DISTINCT` hop pruning, Neo4j navigates direct memory pointers and discards redundant pathways, achieving a **~25x speedup** at Depth 3!
 
 - **⚖️ The Sweet Spot:** PostgreSQL is competitive at Depth 1 (~65ms vs Neo4j ~39ms) and Depth 2 (~97ms vs Neo4j ~164ms) due to simple indices, but shows dramatic structural limits at deep social paths — proving why a **Graph Database is essential** for complex campus matching use cases.
-
-![image](https://hackmd.io/_uploads/HkP78X3JGl.png)
-
-![image](https://hackmd.io/_uploads/rJmhUX31Me.png)
-
 
 ---
 
