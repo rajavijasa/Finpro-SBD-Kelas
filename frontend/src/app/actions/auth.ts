@@ -576,3 +576,48 @@ export async function fetchLikedMeDeckAction(userName: string): Promise<LikedMeC
     return [];
   }
 }
+
+// 8. FETCH GRAPH RELATIONSHIP PATHS
+export async function fetchRelationGraphAction(me: string, other: string) {
+  try {
+    const result = await runCypher(`
+      MATCH (me:Student|User {name: $me})
+      MATCH (other:Student|User {name: $other})
+
+      // Get me major
+      OPTIONAL MATCH (me)-[:STUDIES]->(meM:Major)
+      
+      // Get other major
+      OPTIONAL MATCH (other)-[:STUDIES]->(otherM:Major)
+
+      // Shared courses
+      OPTIONAL MATCH (me)-[:TAKES]->(c:Course)<-[:TAKES]-(other)
+      WITH me, other, meM, otherM, collect(DISTINCT c { .code, .name }) AS sharedCourses
+
+      // Shared hobbies
+      OPTIONAL MATCH (me)-[:LIKES]->(h:Hobby)<-[:LIKES]-(other)
+      WITH me, other, meM, otherM, sharedCourses, collect(DISTINCT h { .name, .category }) AS sharedHobbies
+
+      // Mutual friends
+      OPTIONAL MATCH (me)-[:CONNECTED_WITH]-(f:Student|User)-[:CONNECTED_WITH]-(other)
+      WITH meM, otherM, sharedCourses, sharedHobbies, collect(DISTINCT f { .name }) AS mutualFriends
+
+      RETURN {
+        meMajor: case when meM is not null then { name: meM.name, faculty: meM.faculty } else null end,
+        otherMajor: case when otherM is not null then { name: otherM.name, faculty: otherM.faculty } else null end,
+        sharedCourses: sharedCourses,
+        sharedHobbies: sharedHobbies,
+        mutualFriends: mutualFriends
+      } AS data
+    `, { me, other });
+
+    if (result.records.length > 0) {
+      return result.records[0].get('data');
+    }
+    return null;
+  } catch (err) {
+    console.error('fetchRelationGraphAction Failed:', err);
+    return null;
+  }
+}
+
