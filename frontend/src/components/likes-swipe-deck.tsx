@@ -373,8 +373,9 @@ export default function LikesSwipeDeck({ currentUser, likedMeDeck }: LikesSwipeD
             <div className="mt-5 flex flex-col gap-2 w-full">
               <button
                 onClick={() => {
+                  const targetName = matchPopup.targetName;
                   setMatchPopup(null);
-                  alert(`Message sent to ${matchPopup.targetName}! 💬`);
+                  router.push(`/messages/${encodeURIComponent(targetName)}`);
                 }}
                 className="rounded-xl bg-slate-900 hover:bg-slate-800 py-2.5 text-xs font-bold text-white shadow-sm transition-colors"
               >

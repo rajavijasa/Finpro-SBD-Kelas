@@ -535,6 +535,22 @@ export default function CampusMatchDashboard({
                 </span>
               )}
             </a>
+
+            <button
+              onClick={() => router.push('/discover')}
+              className="flex items-center gap-1 bg-rose-50 hover:bg-rose-100 transition-colors text-rose-700 font-extrabold text-xs px-3.5 py-2 rounded-xl cursor-pointer shadow-sm hover:scale-[1.02] active:scale-[0.98] border border-rose-200/60"
+              type="button"
+            >
+              🔎 Discover
+            </button>
+
+            <button
+              onClick={() => router.push('/messages')}
+              className="flex items-center gap-1 bg-sky-50 hover:bg-sky-100 transition-colors text-sky-700 font-extrabold text-xs px-3.5 py-2 rounded-xl cursor-pointer shadow-sm hover:scale-[1.02] active:scale-[0.98] border border-sky-200/60"
+              type="button"
+            >
+              💬 Messages
+            </button>
             
             <button
               onClick={() => setShowSettings(true)}
@@ -916,8 +932,9 @@ export default function CampusMatchDashboard({
             <div className="mt-5 flex flex-col gap-2 w-full">
               <button
                 onClick={() => {
+                  const targetName = matchPopup.targetName;
                   setMatchPopup(null);
-                  alert(`Message sent to ${matchPopup.targetName}! 💬`);
+                  router.push(`/messages/${encodeURIComponent(targetName)}`);
                 }}
                 className="rounded-xl bg-slate-900 hover:bg-slate-800 py-2.5 text-xs font-bold text-white shadow-sm transition-colors"
               >
