@@ -453,7 +453,7 @@ export async function fetchSwipeDeckAction(swiperName: string): Promise<SwipeDec
         sharedHobbyNames,
         mutualFriends
 
-      ORDER BY relevanceScore DESC, name ASC
+      ORDER BY relevanceScore DESC, rand() ASC
     `, { swiperName });
 
     // 4. Build user ID lookup from PostgreSQL for filtering

@@ -63,7 +63,7 @@ export async function mutualClassFinder(input: {
       collect(DISTINCT c{.subject, .code}) AS sharedCourses,
       count(DISTINCT c) AS sharedCount
     RETURN other{.name, .university, .year} AS user, sharedCount, sharedCourses
-    ORDER BY sharedCount DESC, user.name ASC
+    ORDER BY sharedCount DESC, rand() ASC
     LIMIT $limit
   `;
 
@@ -99,7 +99,7 @@ export async function friendOfFriendRecommendations(input: {
     WITH candidate, mutualFriends, size(mutualFriends) AS mutualCount
     WHERE mutualCount >= 2
     RETURN candidate{.name, .university, .year} AS user, mutualCount, mutualFriends
-    ORDER BY mutualCount DESC, user.name ASC
+    ORDER BY mutualCount DESC, rand() ASC
     LIMIT $limit
   `;
 
@@ -131,13 +131,13 @@ export async function hobbyCluster(input: {
 
     MATCH (me)-[:LIKES]->(h:Hobby)<-[:LIKES]-(other:User|Student)
     WHERE other <> me
+    WITH other, count(h) AS sharedHobbyCount, collect(h)[0] AS primaryHobby
     OPTIONAL MATCH (other)-[:STUDIES]->(otherMajor:Major)
-    WITH other, otherMajor, h
     RETURN
       other{.name, .university, .year} AS user,
       CASE WHEN otherMajor IS NULL THEN NULL ELSE otherMajor{.name, .faculty} END AS major,
-      h{.name, .category} AS hobby
-    ORDER BY user.name ASC
+      primaryHobby{.name, .category} AS hobby
+    ORDER BY sharedHobbyCount DESC, rand() ASC
     LIMIT $limit
   `;
 
