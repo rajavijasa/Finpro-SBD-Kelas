@@ -1,20 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getConversationAction, getMatchesAction, sendMessageAction, type ChatMessage, type MatchSummary } from '@/app/actions/messages';
-import { getErrorMessage } from '@/lib/errors';
-
-type Loadable<T> =
-  | { status: 'loading'; data: null; error: null }
-  | { status: 'ready'; data: T; error: null }
-  | { status: 'error'; data: T | null; error: string };
-
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
+import { useMessages } from '@/hooks/useMessages';
+import { formatTime } from '@/lib/utils';
+import { MatchSummary, ChatMessage } from '@/app/actions/messages';
 
 export default function MessagesInbox({
   currentUser,
@@ -24,96 +14,22 @@ export default function MessagesInbox({
   initialTargetName?: string | null;
 }) {
   const router = useRouter();
-  const [matches, setMatches] = useState<Loadable<MatchSummary[]>>({ status: 'loading', data: null, error: null });
   const [selected, setSelected] = useState<string | null>(initialTargetName ?? null);
-  const [thread, setThread] = useState<Loadable<ChatMessage[]>>({ status: 'loading', data: null, error: null });
   const [text, setText] = useState('');
-  const [sending, setSending] = useState(false);
-
+  const { matches, thread, sending, sendMessage } = useMessages(currentUser, selected);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
-  const selectedLabel = useMemo(() => {
-    if (!selected) return 'Select a match';
-    return selected;
-  }, [selected]);
-
   useEffect(() => {
-    let active = true;
-    setMatches({ status: 'loading', data: null, error: null });
-
-    getMatchesAction(currentUser)
-      .then((res) => {
-        if (!active) return;
-        if ('error' in res) {
-          setMatches({ status: 'error', data: null, error: res.error });
-          return;
-        }
-        setMatches({ status: 'ready', data: res.matches, error: null });
-
-        if (!selected && res.matches.length > 0) {
-          const next = initialTargetName && res.matches.some((m) => m.name === initialTargetName)
-            ? initialTargetName
-            : res.matches[0]?.name;
-          if (next) setSelected(next);
-        }
-      })
-      .catch((err) => {
-        if (!active) return;
-        setMatches({ status: 'error', data: null, error: getErrorMessage(err) });
-      });
-
-    return () => {
-      active = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser]);
-
-  const loadThread = (targetName: string) => {
-    setThread({ status: 'loading', data: null, error: null });
-    getConversationAction(currentUser, targetName)
-      .then((res) => {
-        if ('error' in res) {
-          setThread({ status: 'error', data: null, error: res.error });
-          return;
-        }
-        setThread({ status: 'ready', data: res.messages, error: null });
-      })
-      .catch((err) => {
-        setThread({ status: 'error', data: null, error: getErrorMessage(err) });
-      });
-  };
-
-  useEffect(() => {
-    if (!selected) {
-      setThread({ status: 'ready', data: [], error: null });
-      return;
+    if (!selected && matches.status === 'ready' && matches.data.length > 0) {
+      const next = initialTargetName && matches.data.some((m) => m.name === initialTargetName)
+        ? initialTargetName
+        : matches.data[0]?.name;
+      if (next) setSelected(next);
     }
-
-    let cancelled = false;
-    loadThread(selected);
-
-    const interval = setInterval(() => {
-      if (cancelled) return;
-      getConversationAction(currentUser, selected)
-        .then((res) => {
-          if (cancelled) return;
-          if ('error' in res) return;
-          setThread({ status: 'ready', data: res.messages, error: null });
-        })
-        .catch(() => {
-          // ignore polling errors
-        });
-    }, 2500);
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [currentUser, selected]);
+  }, [matches, initialTargetName, selected]);
 
   useEffect(() => {
-    if (!bottomRef.current) return;
-    bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [thread.status, selected]);
 
   const selectMatch = (name: string) => {
@@ -122,37 +38,10 @@ export default function MessagesInbox({
   };
 
   const onSend = async () => {
-    if (!selected || sending) return;
-    const msg = text.trim();
-    if (!msg) return;
-
-    setSending(true);
-    try {
-      const res = await sendMessageAction(currentUser, selected, msg);
-      if ('error' in res) {
-        setThread((prev) => ({
-          status: 'error',
-          data: prev.status === 'ready' ? prev.data : null,
-          error: res.error,
-        }));
-        return;
-      }
-
+    const res = await sendMessage(text);
+    if (res?.success) {
       setText('');
-      setThread((prev) => {
-        const existing = prev.status === 'ready' && prev.data ? prev.data : [];
-        return { status: 'ready', data: [...existing, res.message], error: null };
-      });
-
       setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
-    } catch (err) {
-      setThread((prev) => ({
-        status: 'error',
-        data: prev.status === 'ready' ? prev.data : null,
-        error: getErrorMessage(err),
-      }));
-    } finally {
-      setSending(false);
     }
   };
 
@@ -186,35 +75,14 @@ export default function MessagesInbox({
             </div>
           ) : (
             <div className="space-y-1">
-              {matches.data.map((m) => {
-                const active = selected === m.name;
-                return (
-                  <button
-                    key={m.name}
-                    type="button"
-                    onClick={() => selectMatch(m.name)}
-                    className={
-                      'w-full flex items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors border ' +
-                      (active
-                        ? 'bg-slate-900 text-white border-slate-900'
-                        : 'bg-white hover:bg-slate-50 text-slate-900 border-transparent')
-                    }
-                  >
-                    <div
-                      className={
-                        'h-8 w-8 rounded-xl flex items-center justify-center font-black text-sm border ' +
-                        (active ? 'bg-white/10 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-700')
-                      }
-                    >
-                      {m.name[0] ?? '?'}
-                    </div>
-                    <div className="min-w-0">
-                      <div className={"text-xs font-extrabold truncate " + (active ? 'text-white' : 'text-slate-900')}>{m.name}</div>
-                      <div className={"text-[11px] font-semibold truncate " + (active ? 'text-white/70' : 'text-slate-500')}>Tap to chat</div>
-                    </div>
-                  </button>
-                );
-              })}
+              {matches.data.map((m) => (
+                <MatchItem
+                  key={m.name}
+                  match={m}
+                  active={selected === m.name}
+                  onClick={() => selectMatch(m.name)}
+                />
+              ))}
             </div>
           )}
         </div>
@@ -223,7 +91,7 @@ export default function MessagesInbox({
       <section className="md:col-span-8 rounded-2xl border border-slate-200 bg-white overflow-hidden flex flex-col min-h-[520px]">
         <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-xs font-black text-slate-900 truncate">{selectedLabel}</div>
+            <div className="text-xs font-black text-slate-900 truncate">{selected || 'Select a match'}</div>
             <div className="text-[11px] font-semibold text-slate-500">Match-only messaging</div>
           </div>
           <button
@@ -251,21 +119,7 @@ export default function MessagesInbox({
           ) : (
             <div className="space-y-2">
               {thread.data.map((m) => (
-                <div key={m.id} className={m.direction === 'out' ? 'flex justify-end' : 'flex justify-start'}>
-                  <div
-                    className={
-                      'max-w-[80%] rounded-2xl px-3 py-2 text-xs font-semibold border ' +
-                      (m.direction === 'out'
-                        ? 'bg-slate-900 text-white border-slate-900'
-                        : 'bg-white text-slate-900 border-slate-200')
-                    }
-                  >
-                    <div className="leading-relaxed whitespace-pre-wrap break-words">{m.content}</div>
-                    <div className={"mt-1 text-[10px] font-bold " + (m.direction === 'out' ? 'text-white/60' : 'text-slate-400')}>
-                      {formatTime(m.createdAt)}
-                    </div>
-                  </div>
-                </div>
+                <MessageBubble key={m.id} message={m} />
               ))}
               <div ref={bottomRef} />
             </div>
@@ -293,6 +147,55 @@ export default function MessagesInbox({
           </div>
         </div>
       </section>
+    </div>
+  );
+}
+
+function MatchItem({ match, active, onClick }: { match: MatchSummary; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        'w-full flex items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors border ' +
+        (active
+          ? 'bg-slate-900 text-white border-slate-900'
+          : 'bg-white hover:bg-slate-50 text-slate-900 border-transparent')
+      }
+    >
+      <div
+        className={
+          'h-8 w-8 rounded-xl flex items-center justify-center font-black text-sm border ' +
+          (active ? 'bg-white/10 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-700')
+        }
+      >
+        {match.name[0] ?? '?'}
+      </div>
+      <div className="min-w-0">
+        <div className={"text-xs font-extrabold truncate " + (active ? 'text-white' : 'text-slate-900')}>{match.name}</div>
+        <div className={"text-[11px] font-semibold truncate " + (active ? 'text-white/70' : 'text-slate-500')}>Tap to chat</div>
+      </div>
+    </button>
+  );
+}
+
+function MessageBubble({ message }: { message: ChatMessage }) {
+  const isOut = message.direction === 'out';
+  return (
+    <div className={isOut ? 'flex justify-end' : 'flex justify-start'}>
+      <div
+        className={
+          'max-w-[80%] rounded-2xl px-3 py-2 text-xs font-semibold border ' +
+          (isOut
+            ? 'bg-slate-900 text-white border-slate-900'
+            : 'bg-white text-slate-900 border-slate-200')
+        }
+      >
+        <div className="leading-relaxed whitespace-pre-wrap break-words">{message.content}</div>
+        <div className={"mt-1 text-[10px] font-bold " + (isOut ? 'text-white/60' : 'text-slate-400')}>
+          {formatTime(message.createdAt)}
+        </div>
+      </div>
     </div>
   );
 }

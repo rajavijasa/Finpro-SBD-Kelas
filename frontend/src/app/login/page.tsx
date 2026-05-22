@@ -109,7 +109,7 @@ export default function LoginPage() {
 
         {/* Registration CTA Link */}
         <div className="mt-6 text-center text-xs text-slate-500 font-semibold">
-          Don't have a profile?{' '}
+          Don&apos;t have a profile?{' '}
           <Link href="/register" className="text-rose-500 hover:underline font-bold">
             Create Account
           </Link>
