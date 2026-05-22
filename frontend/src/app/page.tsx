@@ -11,6 +11,7 @@ import { fetchSwipeDeckAction, fetchLikedMeDeckAction } from "@/app/actions/auth
 import { Suspense } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { COLORS, USER_PROFILES } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +43,9 @@ export default async function Home() {
   const coursesList: string[] = orbitsResult.records[0]?.get('courses') || [];
   const hobbiesList: string[] = orbitsResult.records[0]?.get('hobbies') || [];
 
+  const charSum = (rawProfile?.fullName || sessionUser).split('').reduce((sum: number, ch: string) => sum + ch.charCodeAt(0), 0);
+  const defaultColor = COLORS[charSum % COLORS.length];
+
   const profileData = {
     fullName: rawProfile?.fullName || sessionUser,
     username: rawProfile?.username || '',
@@ -54,6 +58,7 @@ export default async function Home() {
     avatarUrl: rawProfile?.avatarUrl || '',
     courses: coursesList,
     hobbies: hobbiesList,
+    colorStyle: USER_PROFILES[rawProfile?.fullName || sessionUser]?.colorStyle || defaultColor,
   };
 
   // 2. Fetch recommendations (for Radar panel) + swipe deck + liked-me count in parallel

@@ -1,5 +1,4 @@
 import { cookies } from 'next/headers';
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import DiscoverRecommendations from '@/components/discover-recommendations';
 import Navbar from '@/components/navbar';
